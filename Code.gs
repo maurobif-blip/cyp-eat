@@ -1,9 +1,9 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.3';
+var EAT_VERSION = 'alpha 0.4';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 var EAT_ROLES = ['Volunteer', 'Canteen', 'Educator'];
-var EAT_TYPES = ['people', 'menu', 'before', 'after', 'skip', 'received', 'endweek', 'note'];
+var EAT_TYPES = ['people', 'menu', 'before', 'after', 'skip', 'received', 'endweek', 'note', 'startweek'];
 /* protein of the day on the weekly canteen sheet: Sun..Sat */
 var EAT_PLAN = ['chk', 'egg', 'chk', 'egg', 'fsh', 'bea', 'egg'];
 
@@ -130,29 +130,32 @@ function eatPerPlate(use, id) {
   return use.used[id] / use.base;
 }
 
-/* stock of one centre on a day: last end-of-week count before that day, plus received, minus used, up to that day */
-function eatStock(db, centre, upTo) {
-  var last = null, i, e;
+/* stock of one centre. A count at the start of a day (startweek) comes before that day's deliveries and meals;
+   a count at the end of a day (endweek) comes after them. atStart: the stock in the morning of upTo, before its count. */
+function eatCountKey(e) { return e.type === 'startweek' ? e.date + '|0' : (e.type === 'endweek' ? e.date + '|2' : ''); }
+function eatStock(db, centre, upTo, atStart) {
+  var lim = upTo + (atStart ? '|0' : '|2'), last = null, lastK = '', i, e, k;
   for (i = 0; i < db.entries.length; i++) {
     e = db.entries[i];
-    if (e.del || e.type !== 'endweek' || e.centre !== centre || e.date >= upTo) continue;
-    if (!last || e.date > last.date) last = e;
+    if (e.del || e.centre !== centre) continue;
+    k = eatCountKey(e); if (!k || k >= lim) continue;
+    if (!last || k > lastK) { last = e; lastK = k; }
   }
-  var from = last ? last.date : '', out = {}, items = db.items;
+  var first, lastDay = atStart ? eatAddDays(upTo, -1) : upTo, out = {}, items = db.items;
+  if (last) first = last.type === 'startweek' ? last.date : eatAddDays(last.date, 1);
+  else { first = upTo; for (i = 0; i < db.entries.length; i++) { e = db.entries[i]; if (!e.del && e.centre === centre && e.date < first) first = e.date; } }
   for (i = 0; i < items.length; i++) {
     var it = items[i]; if (!it.stock) continue;
     var start = last ? (last.data.nc && last.data.nc[it.id] ? null : (last.data.q[it.id] != null ? last.data.q[it.id] : 0)) : 0;
-    out[it.id] = { start: start, startDate: from, inn: 0, used: 0, usedOk: true, expected: null };
+    out[it.id] = { start: start, startDate: last ? last.date : '', startKind: last ? (last.type === 'startweek' ? 'start' : 'end') : '', inn: 0, used: 0, usedOk: true, expected: null };
   }
   for (i = 0; i < db.entries.length; i++) {
     e = db.entries[i];
-    if (e.del || e.centre !== centre || e.date <= from || e.date > upTo) continue;
+    if (e.del || e.centre !== centre || e.date < first || e.date > lastDay) continue;
     if (e.type === 'received' || (e.type === 'note' && !e.data.off)) for (var id in e.data.q) if (out[id] && e.data.q[id] != null) out[id].inn += e.data.q[id];
   }
-  var c = eatCentre(db, centre), meals = c ? c.meals : EAT_MEALS, d = from ? eatAddDays(from, 1) : null;
-  /* without a count, the stock starts at the first entry of the centre */
-  if (!d) { d = upTo; for (i = 0; i < db.entries.length; i++) { e = db.entries[i]; if (!e.del && e.centre === centre && e.date < d) d = e.date; } }
-  for (var guard = 0; d <= upTo && guard < 400; d = eatAddDays(d, 1), guard++) {
+  var c = eatCentre(db, centre), meals = c ? c.meals : EAT_MEALS;
+  for (var d = first, guard = 0; d <= lastDay && guard < 400; d = eatAddDays(d, 1), guard++) {
     for (var m = 0; m < meals.length; m++) {
       var u = eatMealUse(db, centre, d, meals[m]);
       if (!u.hasBefore) continue;
@@ -169,6 +172,18 @@ function eatStock(db, centre, upTo) {
   }
   return out;
 }
+/* the count of a week: the first start count, the last end count */
+function eatWeekCount(db, centre, monday, type) {
+  var sun = eatAddDays(monday, 6), hit = null;
+  for (var i = 0; i < db.entries.length; i++) {
+    var e = db.entries[i];
+    if (e.del || e.type !== type || e.centre !== centre || e.date < monday || e.date > sun) continue;
+    if (!hit || (type === 'startweek' ? e.date < hit.date : e.date > hit.date)) hit = e;
+  }
+  return hit;
+}
+/* the last day a delivery should cover */
+function eatNoteUntil(e) { var n = e && e.data ? e.data.days : null; return n ? eatAddDays(e.date, n - 1) : ''; }
 
 /* ---------- delivery notes (from the Self Reliance books) ---------- */
 function eatNoteNo(x) { var t = String(x == null ? '' : x).replace(/\D/g, ''); return t.length >= 1 && t.length <= 8 ? String(Number(t)) : ''; }
@@ -205,7 +220,7 @@ function eatApply(db, mode, op, nowIso, info) {
     if (e.date > eatToday(nowIso)) return { ok: false, error: 'future' };
     var meal = e.meal || '';
     if (['people', 'menu', 'before', 'after', 'skip'].indexOf(e.type) >= 0 && EAT_MEALS.indexOf(meal) < 0) return { ok: false, error: 'meal' };
-    if (['received', 'endweek', 'note'].indexOf(e.type) >= 0) meal = '';
+    if (['received', 'endweek', 'note', 'startweek'].indexOf(e.type) >= 0) meal = '';
     var key = eatKey(e.type, e.centre, e.date, meal);
     /* a delivery note is one paper note: its number is the key, whatever the centre or the date */
     if (e.type === 'note') { var no = eatNoteNo((e.data || {}).no); if (!no) return { ok: false, error: 'note_no' }; key = 'note|' + no; }
@@ -282,8 +297,8 @@ function eatClean(db, type, d) {
   if (type === 'before' || type === 'after') { var o = { q: qs(d.q), nc: ncs(d.nc), u: us(d.u) }; if (type === 'after') { o.kept = eatNum(d.kept); o.keptNc = !!d.keptNc; } return o; }
   if (type === 'skip') return { on: !!d.on };
   if (type === 'received') return { q: qs(d.q) };
-  if (type === 'endweek') return { q: qs(d.q), nc: ncs(d.nc) };
-  if (type === 'note') { var nq = qs(d.q), q2 = {}; for (var k2 in nq) if (k2 !== 'pcs' && nq[k2] != null && nq[k2] > 0) q2[k2] = nq[k2]; return { no: eatNoteNo(d.no), q: q2, remark: eatText(d.remark, 200), recv: eatText(d.recv, 60), off: !!d.off }; }
+  if (type === 'endweek' || type === 'startweek') return { q: qs(d.q), nc: ncs(d.nc) };
+  if (type === 'note') { var nq = qs(d.q), q2 = {}; for (var k2 in nq) if (k2 !== 'pcs' && nq[k2] != null && nq[k2] > 0) q2[k2] = nq[k2]; var dy = Math.round(Number(d.days)); return { no: eatNoteNo(d.no), q: q2, days: isFinite(dy) && dy >= 1 && dy <= 60 ? dy : null, remark: eatText(d.remark, 200), recv: eatText(d.recv, 60), off: !!d.off }; }
   return {};
 }
 
@@ -380,20 +395,21 @@ function details_(db, e) {
   for (id in q) {
     if (id === 'pcs') { parts.push('Chicken pieces ' + (nc.pcs ? 'not counted' : q[id])); continue; }
     it = eatItem(db, id); if (!it) continue;
-    var unit = e.type === 'received' || e.type === 'endweek' || e.type === 'note' || (d.u && d.u[id] === 'unit') ? it.unit : it.use;
+    var unit = e.type === 'received' || e.type === 'endweek' || e.type === 'startweek' || e.type === 'note' || (d.u && d.u[id] === 'unit') ? it.unit : it.use;
     parts.push(it.name + ' ' + (nc[id] || q[id] == null ? 'not counted' : q[id] + ' ' + unit));
   }
+  if (e.type === 'note' && d.days) parts.push('Should last ' + d.days + (d.days === 1 ? ' day' : ' days'));
   if (e.type === 'after' && (d.kept != null || d.keptNc)) parts.push('Meals kept for later: ' + (d.keptNc ? 'not counted' : d.kept));
   return parts.join('; ');
 }
-var STEP_ = { menu: 'What we eat', before: 'Quantities before', after: 'Quantities after', skip: 'Food not counted', received: 'Food delivered', endweek: 'End of the week' };
+var STEP_ = { menu: 'What we eat', before: 'Quantities before', after: 'Quantities after', skip: 'Food not counted', received: 'Food delivered', endweek: 'End of the week', startweek: 'Start of the week' };
 function mirror_(db, list) {
   if (!list.length) return;
   for (var i = 0; i < list.length; i++) {
     var e = list[i], c = eatCentre(db, e.centre), cn = c ? c.name : e.centre;
     if (e.type === 'note') upsert_(sheet_('deliveries', NOTE_HEAD), NOTE_HEAD, e.key, [Number(e.data.no), e.date, cn, e.data.off ? 'Removed' : safe_(details_(db, e)), safe_(e.data.remark), safe_(e.data.recv), safe_(e.byName), when_(e.saved), e.key]);
     else if (e.type === 'people') upsert_(sheet_('people', PEOPLE_HEAD), PEOPLE_HEAD, e.key, [e.date, cn, e.meal, e.data.n, safe_(e.byName), when_(e.saved), e.key]);
-    else if (e.type === 'received' || e.type === 'endweek') upsert_(sheet_('stock', STOCK_HEAD), STOCK_HEAD, e.key, [e.date, cn, STEP_[e.type], safe_(details_(db, e)), safe_(e.byName), when_(e.saved), e.key]);
+    else if (e.type === 'received' || e.type === 'endweek' || e.type === 'startweek') upsert_(sheet_('stock', STOCK_HEAD), STOCK_HEAD, e.key, [e.date, cn, STEP_[e.type], safe_(details_(db, e)), safe_(e.byName), when_(e.saved), e.key]);
     else upsert_(sheet_('food', FOOD_HEAD), FOOD_HEAD, e.key, [e.date, cn, e.meal, STEP_[e.type], safe_(details_(db, e)), safe_(e.byName), when_(e.saved), e.key]);
   }
 }
