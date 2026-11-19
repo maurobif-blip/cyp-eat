@@ -1,0 +1,874 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CYP EAT</title>
+<meta name="theme-color" content="#0B5FA5">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/favicon-48.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<style>
+:root{
+  --blue:#0B5FA5; --ink:#14213D; --muted:#4A5568; --ground:#F4F6FA; --card:#FFFFFF; --line:#D5DBE6; --edge:#7A869A;
+  --em-bg:#FFE9D1; --em-ink:#6B2C00; --em:#B85300; --ok-bg:#DDF2DA; --ok-ink:#14600A; --wait-bg:#E4EBF7; --wait-ink:#1D3F7A;
+  --warn-bg:#FFF4C2; --warn-ink:#5C4400; --off-bg:#ECECEC; --off-ink:#333333;
+  --font:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--font);font-size:16px;line-height:1.35;-webkit-text-size-adjust:100%}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:3px solid var(--em);outline-offset:2px}
+h1{margin:0;font-size:24px} h2{margin:4px 0 0;font-size:18px}
+#app{max-width:560px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;background:var(--ground)}
+.top{background:var(--card);border-bottom:1px solid var(--line);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;position:sticky;top:0;z-index:5}
+.top .who{font-size:14px;font-weight:700;color:var(--muted);text-align:right;background:none;border:0;padding:4px 0;min-height:44px}
+.net{font-size:14px;font-weight:700;padding:6px 16px;background:var(--warn-bg);color:var(--warn-ink)}
+.net.ok{background:var(--wait-bg);color:var(--wait-ink)}
+main{flex:1 1 auto;padding:16px;display:flex;flex-direction:column;gap:14px;padding-bottom:150px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.btn{min-height:48px;padding:0 14px;border-radius:8px;border:2px solid var(--edge);background:var(--card);font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:8px;text-align:center;text-decoration:none;color:var(--ink)}
+.btn.pri,.btn.on{background:var(--blue);border-color:var(--blue);color:#fff}
+.btn.big{min-height:56px;font-size:18px}
+.btn.sq{width:48px;padding:0;font-size:24px;flex-shrink:0}
+.btn.link{border:0;background:none;color:var(--blue);min-height:44px;padding:0 4px;justify-content:flex-start}
+.btn:disabled{opacity:.45;cursor:default}
+.seg{display:grid;gap:6px}
+.pill{padding:4px 10px;border-radius:999px;font-size:14px;font-weight:700;background:var(--wait-bg);color:var(--wait-ink);white-space:nowrap}
+.pill.ok{background:var(--ok-bg);color:var(--ok-ink)} .pill.warn{background:var(--warn-bg);color:var(--warn-ink)} .pill.off{background:var(--off-bg);color:var(--off-ink)} .pill.em{background:var(--em-bg);color:var(--em-ink)}
+.in{width:100%;min-height:48px;padding:0 12px;border:2px solid var(--edge);border-radius:8px;background:#fff}
+.in:disabled{background:var(--off-bg);border-color:var(--line)}
+textarea.in{min-height:110px;padding:10px 12px}
+.lab{font-weight:700}
+.sec{font-size:14px;font-weight:700;color:var(--blue)}
+.m{color:var(--muted)} .s{font-size:14px} .b{font-weight:700} .num{font-variant-numeric:tabular-nums}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;border-top:1px solid var(--line);padding:9px 0}
+.row:first-child{border-top:0}
+.nc{min-height:40px;padding:0 10px;border-radius:8px;border:2px solid var(--edge);background:#fff;font-size:14px;font-weight:700}
+.nc.on{background:var(--em-bg);border-color:var(--em);color:var(--em-ink)}
+.step{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;min-height:64px;width:100%;text-align:left}
+.dot{width:32px;height:32px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;font-size:13px}
+.dot.ok{background:var(--ok-bg);color:var(--ok-ink)} .dot.em{background:var(--blue);color:#fff} .dot.off{background:var(--off-bg);color:var(--off-ink)}
+.box{border-radius:8px;padding:12px;font-weight:700;border:2px solid}
+.box.ok{background:var(--ok-bg);color:var(--ok-ink);border-color:var(--ok-ink)}
+.box.em{background:var(--em-bg);color:var(--em-ink);border-color:var(--em)}
+.box.info{background:var(--wait-bg);color:var(--wait-ink);border-color:var(--blue)}
+nav.bottom{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);display:flex;justify-content:center;z-index:6}
+nav.bottom .in2{display:flex;width:100%;max-width:560px}
+.navi{flex:1 1 0;min-height:62px;border:0;border-top:4px solid #fff;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:13px;font-weight:700;color:var(--muted)}
+.navi.on{color:var(--blue);border-top-color:var(--blue)}
+svg.ic{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.tap{width:250px;height:250px;border-radius:999px;border:0;background:var(--blue);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;box-shadow:0 6px 0 #08467A;touch-action:manipulation;-webkit-user-select:none;user-select:none}
+.tap:active{transform:translateY(4px);box-shadow:0 2px 0 #08467A}
+.daybar{display:flex;align-items:center;justify-content:space-between;background:#fff;border:2px solid var(--line);border-radius:12px;padding:4px}
+.daybar.today{border-color:var(--ok-ink)} .daybar.past{border-color:var(--em)}
+.grid4{display:grid;grid-template-columns:1.5fr 1fr 1fr 1fr 1fr;font-size:15px}
+.grid4 span{padding:7px 0;border-top:1px solid var(--line)} .grid4 .h{font-size:13px;font-weight:700;color:var(--muted);border-top:0}
+.grid4 .r{text-align:right}
+.bar{height:14px;border-radius:4px;background:var(--wait-bg);overflow:hidden} .bar i{display:block;height:14px;background:var(--blue)}
+.keys{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.keys .btn{min-height:62px;font-size:26px}
+.dots{display:flex;justify-content:center;gap:14px;padding:8px 0;min-height:40px}
+.dots span{width:18px;height:18px;border-radius:999px;border:2px solid var(--blue)} .dots span.f{background:var(--blue)}
+.modal{position:fixed;inset:0;background:rgba(20,33,61,.45);display:flex;align-items:flex-end;justify-content:center;z-index:20}
+.modal .sheet{background:#fff;width:100%;max-width:560px;border-radius:16px 16px 0 0;padding:16px;display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow:auto}
+.chips{display:flex;flex-wrap:wrap;gap:6px} .chips .btn{min-height:44px;font-size:15px}
+.ver{font-size:13px;color:var(--muted);text-align:center;padding:8px}
+.cbtn{position:fixed;right:12px;bottom:74px;z-index:7;min-height:44px;padding:0 14px;border-radius:999px;border:2px solid var(--edge);background:#fff;font-weight:700;display:flex;align-items:center;gap:6px;box-shadow:0 2px 8px rgba(20,33,61,.18)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="core.js"></script>
+<script>
+/* ===================== CYP EAT app ===================== */
+var LOGO = '<svg role="img" aria-label="CYP EAT" viewBox="0 0 953 200" style="width:133px;height:28px;display:block;flex-shrink:0"><defs><pattern id="lgwp" patternUnits="userSpaceOnUse" width="48" height="72"><rect width="48" height="72" fill="#198A00"></rect><polygon points="0,-18 24,-38 48,-18 48,0 24,-20 0,0" fill="#EF7D00" stroke="#fff" stroke-width="2.5"></polygon><polygon points="0,0 24,-20 48,0 48,18 24,-2 0,18" fill="#198A00" stroke="#fff" stroke-width="2.5"></polygon><polygon points="0,18 24,-2 48,18 48,36 24,16 0,36" fill="#DE2010" stroke="#fff" stroke-width="2.5"></polygon><polygon points="0,36 24,16 48,36 48,54 24,34 0,54" fill="#111111" stroke="#fff" stroke-width="2.5"></polygon><polygon points="0,54 24,34 48,54 48,72 24,52 0,72" fill="#EF7D00" stroke="#fff" stroke-width="2.5"></polygon><polygon points="0,72 24,52 48,72 48,90 24,70 0,90" fill="#198A00" stroke="#fff" stroke-width="2.5"></polygon></pattern><clipPath id="lgwc"><rect width="953" height="200"></rect></clipPath></defs><g clip-path="url(#lgwc)" fill="none" stroke-width="46"><g stroke="#0091D5"><path d="M127,52 C110,30 95,23 80,23 C45,23 23,55 23,100 C23,145 45,177 80,177 C95,177 110,170 127,148"></path><path d="M155,-10 L228,105 L301,-10"></path><path d="M228,105 L228,200"></path><path d="M345,200 L345,23 L397,23 C427,23 444,40 444,66 C444,92 427,109 397,109 L345,109"></path></g><g stroke="url(#lgwp)"><path d="M621,23 L534,23 L534,177 L621,177"></path><path d="M534,100 L606,100"></path><path d="M650,212 L696,-4 L728,-4 L774,212"></path><path d="M676,142 L748,142"></path><path d="M803,23 L953,23"></path><path d="M878,23 L878,200"></path></g></g></svg>';
+var KV = {
+  get: function (k, d) { try { var v = localStorage.getItem('eat-' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set: function (k, v) { try { localStorage.setItem('eat-' + k, JSON.stringify(v)); } catch (e) {} },
+  del: function (k) { try { localStorage.removeItem('eat-' + k); } catch (e) {} }
+};
+var S = {
+  cfg: KV.get('cfg', null),            /* {url, key} of the shared database */
+  server: KV.get('server', null),      /* the copy of the database on this phone */
+  queue: KV.get('queue', []),          /* changes waiting for internet */
+  sess: KV.get('sess', null),          /* {mode, cred, nid, name, centre} */
+  verif: KV.get('verif', {}),
+  scr: '', date: '', meal: '', f: {}, pin: '', msg: '', notice: '', modal: null, busy: false, online: navigator.onLine, lastSync: '', syncing: false,
+  week: '', item: 'mm', installEvt: null
+};
+var V = null; /* what the screens show: the copy from the server plus the changes still waiting */
+function view() {
+  if (V) return V;
+  var src = S.server || { rev: 0, settings: {}, names: [], centres: eatDefaultCentres(), items: eatDefaultItems(), entries: [], comments: [] };
+  var db = JSON.parse(JSON.stringify(src));
+  db.opIds = []; db.settings = db.settings || {};
+  for (var i = 0; i < S.queue.length; i++) { try { eatApply(db, S.queue[i].mode, S.queue[i], nowIso(), null); } catch (e) {} }
+  V = db; return V;
+}
+function changed() { V = null; }
+function nowIso() { return new Date().toISOString(); }
+function todayStr() { return eatToday(nowIso()); }
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
+function esc(x) { return String(x == null ? '' : x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+var WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MO = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function dayName(s) { return WD[eatWeekday(s)] + ' ' + Number(s.slice(8, 10)) + ' ' + MO[Number(s.slice(5, 7)) - 1]; }
+function fmt(n) { if (n == null) return '–'; return String(Math.round(n * 100) / 100); }
+function localTime(iso) { return iso ? new Date(Date.parse(iso) + 2 * 3600000).toISOString().slice(0, 16).replace('T', ' ') : ''; }
+function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+function vibrate() { try { if (navigator.vibrate) navigator.vibrate(35); } catch (e) {} }
+/* SHA-256 of a plain text, as hex (from CYP FIN) */
+function sha256(ascii) {
+  function rr(v, a) { return (v >>> a) | (v << (32 - a)); }
+  var mp = Math.pow, maxWord = mp(2, 32), i, j, result = '', words = [], bits = ascii.length * 8;
+  var hash = sha256.h = sha256.h || [], k = sha256.k = sha256.k || [], pc = k.length, comp = {};
+  for (var c = 2; pc < 64; c++) { if (!comp[c]) { for (i = 0; i < 313; i += c) comp[i] = c; hash[pc] = (mp(c, .5) * maxWord) | 0; k[pc++] = (mp(c, 1 / 3) * maxWord) | 0; } }
+  ascii += '\x80'; while (ascii.length % 64 - 56) ascii += '\x00';
+  for (i = 0; i < ascii.length; i++) { j = ascii.charCodeAt(i); if (j >> 8) return ''; words[i >> 2] |= j << ((3 - i) % 4) * 8; }
+  words[words.length] = ((bits / maxWord) | 0); words[words.length] = bits;
+  for (j = 0; j < words.length;) {
+    var w = words.slice(j, j += 16), old = hash; hash = hash.slice(0, 8);
+    for (i = 0; i < 64; i++) {
+      var w15 = w[i - 15], w2 = w[i - 2], a = hash[0], e = hash[4];
+      var t1 = hash[7] + (rr(e, 6) ^ rr(e, 11) ^ rr(e, 25)) + ((e & hash[5]) ^ ((~e) & hash[6])) + k[i] + (w[i] = (i < 16) ? w[i] : (w[i - 16] + (rr(w15, 7) ^ rr(w15, 18) ^ (w15 >>> 3)) + w[i - 7] + (rr(w2, 17) ^ rr(w2, 19) ^ (w2 >>> 10))) | 0);
+      var t2 = (rr(a, 2) ^ rr(a, 13) ^ rr(a, 22)) + ((a & hash[1]) ^ (a & hash[2]) ^ (hash[1] & hash[2]));
+      hash = [(t1 + t2) | 0].concat(hash); hash[4] = (hash[4] + t1) | 0;
+    }
+    for (i = 0; i < 8; i++) hash[i] = (hash[i] + old[i]) | 0;
+  }
+  for (i = 0; i < 8; i++) for (j = 3; j + 1; j--) { var b = (hash[i] >> (j * 8)) & 255; result += ((b < 16) ? '0' : '') + b.toString(16); }
+  return result;
+}
+function credOf(salt, pin) { return sha256(salt + ':' + pin); }
+var IC = {
+  today: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M10 21v-6h4v6"/>',
+  people: '<circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"/><circle cx="17" cy="9" r="2.5"/><path d="M16 14.2c3 .2 5.5 2.3 5.5 5.8"/>',
+  food: '<path d="M3 11h18"/><path d="M4 11a8 8 0 0 0 16 0"/><path d="M9 4c0 1.5 1 1.5 1 3"/><path d="M13 4c0 1.5 1 1.5 1 3"/>',
+  week: '<path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>',
+  gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
+  check: '<path d="M5 12.5 10 17l9-10"/>', back: '<path d="M15 5l-7 7 7 7"/>', next: '<path d="M9 5l7 7-7 7"/>', talk: '<path d="M4 5h16v11H10l-5 4v-4H4z"/>'
+};
+function ic(n) { return '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">' + IC[n] + '</svg>'; }
+
+/* ===================== the shared database ===================== */
+function readLink() {
+  var m = /[?&]db=([^&#]+)/.exec(location.search);
+  if (!m) return;
+  try {
+    var b = m[1].replace(/-/g, '+').replace(/_/g, '/'); while (b.length % 4) b += '=';
+    var t = atob(b), p = t.lastIndexOf('|');
+    if (p > 0) { var cfg = { url: t.slice(0, p), key: t.slice(p + 1) }; if (!S.cfg || S.cfg.url !== cfg.url || S.cfg.key !== cfg.key) { S.cfg = cfg; KV.set('cfg', cfg); S.server = null; KV.del('server'); S.queue = []; KV.set('queue', []); S.sess = null; KV.del('sess'); changed(); } }
+  } catch (e) {}
+  try { history.replaceState(null, '', location.pathname); } catch (e) {}
+}
+function post(req) {
+  req.key = S.cfg.key;
+  return fetch(S.cfg.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(req), redirect: 'follow' }).then(function (r) { return r.json(); });
+}
+function saveServer() { KV.set('server', S.server); }
+function hello() {
+  if (!S.cfg) return Promise.resolve(null);
+  return post({ action: 'hello' }).then(function (res) {
+    if (!res || !res.ok) return null;
+    S.server = S.server || { rev: 0, entries: [], comments: [] };
+    S.server.settings = res.settings; S.server.names = res.names; S.server.centres = res.centres; S.server.items = res.items; S.server.empty = res.empty;
+    saveServer(); changed(); S.online = true; return res;
+  }).catch(function () { S.online = false; return null; });
+}
+var syncTimer = null;
+function syncSoon() { clearTimeout(syncTimer); syncTimer = setTimeout(sync, 400); }
+function sync() {
+  if (!S.cfg || !S.sess || S.syncing) return Promise.resolve();
+  S.syncing = true;
+  var ops = S.queue.slice(0, 40), sent = {};
+  ops.forEach(function (o) { sent[o.id] = 1; });
+  var full = S.fullNext;
+  return post({ action: 'sync', mode: S.sess.mode, cred: S.sess.cred, since: full || !S.server ? 0 : S.server.rev || 0, ops: ops }).then(function (res) {
+    S.syncing = false; S.online = true;
+    if (!res || !res.ok) {
+      if (res && (res.error === 'pin' || res.error === 'empty')) { signOut('The PIN has changed. Sign in again.'); }
+      else if (res && res.error === 'locked') S.notice = 'Too many wrong PINs. Wait one minute.';
+      render(); return;
+    }
+    var bad = (res.results || []).filter(function (r) { return !r.ok; });
+    if (bad.length) S.notice = plural(bad.length, 'change was', 'changes were') + ' refused by the database (' + bad.map(function (b) { return b.error; }).join(', ') + ').';
+    S.queue = S.queue.filter(function (o) { return !sent[o.id]; }); KV.set('queue', S.queue);
+    var sv = S.server || { rev: 0, entries: [], comments: [] };
+    if (res.full) { sv.entries = res.entries; sv.comments = res.comments || []; }
+    else {
+      var byId = {}; sv.entries.forEach(function (e, i) { byId[e.id] = i; });
+      res.entries.forEach(function (e) { if (byId[e.id] != null) sv.entries[byId[e.id]] = e; else sv.entries.push(e); });
+      var cId = {}; (sv.comments || []).forEach(function (c, i) { cId[c.id] = i; });
+      sv.comments = sv.comments || [];
+      (res.comments || []).forEach(function (c) { if (cId[c.id] != null) sv.comments[cId[c.id]] = c; else sv.comments.push(c); });
+    }
+    /* deleted copies are only needed to replace older ones: drop them on the phone */
+    sv.entries = sv.entries.filter(function (e) { return !e.del; });
+    sv.rev = res.rev; sv.settings = res.settings; sv.names = res.names; sv.centres = res.centres; sv.items = res.items; sv.empty = false;
+    S.server = sv; saveServer(); changed(); S.lastSync = nowIso(); if (full) S.fullNext = false;
+    if (S.queue.length) setTimeout(sync, 200);
+    render();
+  }).catch(function () { S.syncing = false; S.online = false; render(); });
+}
+function queue(op) {
+  op.id = op.id || uid(); op.mode = S.sess.mode;
+  S.queue.push(op); KV.set('queue', S.queue); changed(); syncSoon();
+}
+function saveEntry(type, meal, data, date) {
+  queue({ kind: 'entry', e: { type: type, centre: S.sess.centre, date: date || S.date, meal: meal || '', data: data, by: S.sess.nid || '', byName: S.sess.name || 'Overview', at: nowIso() } });
+}
+
+/* ===================== screens ===================== */
+function topBar() {
+  var right = '';
+  if (S.sess && S.sess.mode === 'entry') right = '<button class="who" data-a="who">' + esc(centreName(S.sess.centre)) + ' · ' + esc(S.sess.name) + '</button>';
+  else if (S.sess && S.sess.mode === 'admin') right = '<button class="who" data-a="signout">Overview · Sign out</button>';
+  var net = '';
+  if (S.cfg && S.sess) {
+    if (!S.online) net = '<div class="net">No internet: saved on this phone' + (S.queue.length ? ' · ' + S.queue.length + ' to send' : '') + '</div>';
+    else if (S.queue.length) net = '<div class="net ok">' + S.queue.length + ' to send</div>';
+  }
+  return '<div class="top">' + LOGO + right + '</div>' + net;
+}
+function centreName(id) { var c = eatCentre(view(), id); return c ? c.name : id; }
+function centreMeals() { var c = eatCentre(view(), S.sess.centre); return c ? c.meals : ['Lunch']; }
+function navBar(on) {
+  var items = S.sess.mode === 'admin' ? [['overview', 'Overview', 'week'], ['settings', 'Settings', 'gear']] : [['today', 'Today', 'today'], ['people', 'People', 'people'], ['food', 'Food', 'food']];
+  return '<nav class="bottom" aria-label="Main"><div class="in2">' + items.map(function (x) { return '<button class="navi' + (x[0] === on ? ' on' : '') + '" data-a="go" data-to="' + x[0] + '"' + (x[0] === on ? ' aria-current="page"' : '') + '>' + ic(x[2]) + x[1] + '</button>'; }).join('') + '</div></nav>';
+}
+function noticeHtml() {
+  var out = '';
+  if (S.notice) out += '<div class="box em" role="alert">' + esc(S.notice) + ' <button class="btn link" data-a="hideNotice">Close</button></div>';
+  if (S.good) out += '<div class="box ok" role="status">' + esc(S.good) + '</div>';
+  return out;
+}
+function render() {
+  var app = document.getElementById('app'), h = '';
+  var scr = S.scr;
+  var fn = SCREENS[scr] || SCREENS.signin;
+  var body = fn();
+  h = topBar() + '<main>' + noticeHtml() + body + '</main>';
+  if (S.sess && NAV[scr]) h += navBar(NAV[scr]);
+  if (S.sess && scr !== 'pin' && !S.modal) h += '<button class="cbtn" data-a="comment">' + ic('talk') + 'Comment</button>';
+  if (S.modal) h += S.modal();
+  var y = window.scrollY;
+  app.innerHTML = h;
+  if (S.keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
+  S.keepScroll = false;
+  var af = app.querySelector('[data-focus]'); if (af) { try { af.focus(); } catch (e) {} }
+}
+var NAV = { today: 'today', people: 'people', food: 'food', menu: 'food', before: 'food', after: 'food', received: 'food', endweek: 'food', overview: 'overview', settings: 'settings' };
+function go(scr) { S.scr = scr; S.f = {}; S.msg = ''; S.notice = ''; S.good = ''; enter(scr); render(); }
+
+/* ---------- first steps ---------- */
+function installBox() {
+  var standalone = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone;
+  if (standalone || KV.get('installNo', false)) return '';
+  var ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+  return '<div class="card"><div style="display:flex;align-items:center;gap:12px"><img src="icons/icon-192.png" alt="" width="56" height="56" style="border-radius:12px"><span class="b" style="font-size:18px">Put CYP EAT on this phone</span></div>' +
+    (S.installEvt ? '<button class="btn pri big" data-a="install">Install CYP EAT</button>' : '') +
+    (ios ? '<span><span class="b">iPhone:</span> Share, then Add to Home Screen.</span>' : (S.installEvt ? '' : '<span><span class="b">Android:</span> three dots, then Install app.</span>')) +
+    '<button class="btn" data-a="installNo">Not now</button></div>';
+}
+var SCREENS = {};
+SCREENS.nolink = function () {
+  return '<h1>CYP EAT</h1><div class="card"><span>Open CYP EAT from the link you received.</span></div>' + installBox();
+};
+SCREENS.setup = function () {
+  return '<h1>First use: the two PINs</h1>' +
+    '<div class="card"><span class="lab">Data entry PIN</span><span class="m s">For everyone who counts. 4 to 8 numbers.</span>' +
+    '<label class="lab" for="p1">PIN</label><input id="p1" class="in" inputmode="numeric" type="password" autocomplete="off" data-f="p1" value="' + esc(S.f.p1 || '') + '">' +
+    '<label class="lab" for="p2">PIN again</label><input id="p2" class="in" inputmode="numeric" type="password" autocomplete="off" data-f="p2" value="' + esc(S.f.p2 || '') + '"></div>' +
+    '<div class="card"><span class="lab">Overview PIN</span><span class="m s">For who sees all the centres and changes the settings.</span>' +
+    '<label class="lab" for="p3">PIN</label><input id="p3" class="in" inputmode="numeric" type="password" autocomplete="off" data-f="p3" value="' + esc(S.f.p3 || '') + '">' +
+    '<label class="lab" for="p4">PIN again</label><input id="p4" class="in" inputmode="numeric" type="password" autocomplete="off" data-f="p4" value="' + esc(S.f.p4 || '') + '"></div>' +
+    (S.msg ? '<div class="box em">' + esc(S.msg) + '</div>' : '') +
+    '<button class="btn pri big" data-a="setupSave"' + (S.busy ? ' disabled' : '') + '>Save the PINs</button>';
+};
+SCREENS.signin = function () {
+  return '<h1>Sign in</h1>' + installBox() +
+    '<button class="step" data-a="mode" data-m="entry"><span class="dot em" style="width:48px;height:48px">' + ic('food') + '</span><span style="flex:1 1 auto;display:flex;flex-direction:column"><span class="b" style="font-size:20px">Enter data</span><span class="m">Food and people</span></span>' + ic('next') + '</button>' +
+    '<button class="step" data-a="mode" data-m="admin"><span class="dot" style="width:48px;height:48px;background:#14213D;color:#fff">' + ic('week') + '</span><span style="flex:1 1 auto;display:flex;flex-direction:column"><span class="b" style="font-size:20px">Overview</span><span class="m">All centres</span></span>' + ic('next') + '</button>' +
+    (S.online ? '' : '<div class="box info">No internet. You can sign in only on a phone where you already signed in with internet.</div>') +
+    '<div class="ver">CYP EAT ' + EAT_VERSION + '</div>';
+};
+SCREENS.pin = function () {
+  var dots = ''; for (var i = 0; i < Math.max(4, S.pin.length); i++) dots += '<span class="' + (i < S.pin.length ? 'f' : '') + '"></span>';
+  var keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok'].map(function (k) {
+    if (k === 'del') return '<button class="btn" data-a="key" data-k="del" style="font-size:16px">Delete</button>';
+    if (k === 'ok') return '<button class="btn pri" data-a="key" data-k="ok" style="font-size:18px"' + (S.pin.length < 4 || S.busy ? ' disabled' : '') + '>OK</button>';
+    return '<button class="btn" data-a="key" data-k="' + k + '">' + k + '</button>';
+  }).join('');
+  return '<button class="btn link" data-a="go" data-to="signin">' + ic('back') + 'Back</button>' +
+    '<h1 style="text-align:center">' + (S.pinMode === 'admin' ? 'Overview PIN' : 'Data entry PIN') + '</h1>' +
+    '<div class="dots" aria-live="polite">' + dots + '</div>' +
+    (S.msg ? '<div class="box em" role="alert">' + esc(S.msg) + '</div>' : '') +
+    '<div class="keys">' + keys + '</div>';
+};
+SCREENS.name = function () {
+  var names = (view().names || []).filter(function (n) { return n.active; }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+  return '<h1>Who are you?</h1>' + (names.length ? names.map(function (n) {
+    return '<button class="btn" data-a="pickName" data-id="' + esc(n.id) + '" style="justify-content:space-between;min-height:56px;text-align:left">' + esc(n.name) + '<span class="pill">' + esc(n.role) + '</span></button>';
+  }).join('') : '<div class="card">No names yet. The overview adds them in Settings.</div>') +
+    '<button class="btn link" data-a="signout">Sign out</button>';
+};
+SCREENS.centre = function () {
+  return '<button class="btn link" data-a="go" data-to="name">' + ic('back') + 'Back</button><h1>Which centre?</h1><span class="m b">' + esc(S.sess.name) + '</span>' +
+    view().centres.map(function (c) { return '<button class="btn big" data-a="pickCentre" data-id="' + c.id + '" style="justify-content:space-between">' + esc(c.name) + ic('next') + '</button>'; }).join('');
+};
+
+/* ---------- day bar ---------- */
+function dayBar() {
+  var t = todayStr(), isT = S.date === t;
+  return '<div class="daybar ' + (isT ? 'today' : 'past') + '"><button class="btn sq" style="border:0" data-a="day" data-d="-1" aria-label="Day before">' + ic('back') + '</button>' +
+    '<span style="display:flex;flex-direction:column;align-items:center"><span class="b" style="font-size:20px">' + dayName(S.date) + '</span><span class="s b" style="color:' + (isT ? 'var(--ok-ink)' : 'var(--em-ink)') + '">' + (isT ? 'Today' : (S.date === eatAddDays(t, -1) ? 'Yesterday' : 'Not today')) + '</span></span>' +
+    (isT ? '<span style="width:48px"></span>' : '<button class="btn sq" style="border:0" data-a="day" data-d="1" aria-label="Day after">' + ic('next') + '</button>') + '</div>' +
+    (isT ? '' : '<button class="btn link" data-a="day" data-d="0">Back to today</button>');
+}
+function mealSeg() {
+  var ms = centreMeals();
+  return '<div class="seg" style="grid-template-columns:repeat(' + ms.length + ',minmax(0,1fr))">' + ms.map(function (m) { return '<button class="btn' + (m === S.meal ? ' on' : '') + '" data-a="meal" data-m="' + m + '" aria-pressed="' + (m === S.meal) + '">' + m + '</button>'; }).join('') + '</div>';
+}
+
+/* ---------- today ---------- */
+function foodState(meal) {
+  var db = view(), c = S.sess.centre, d = S.date;
+  var u = eatMealUse(db, c, d, meal);
+  if (u.skipped) return ['Not counted', 'off'];
+  if (u.hasAfter) return ['Done', 'ok'];
+  if (u.hasBefore) return ['After: to do', 'em'];
+  if (eatGet(db, 'menu', c, d, meal)) return ['Before: to do', 'em'];
+  return ['To do', 'warn'];
+}
+SCREENS.today = function () {
+  var db = view(), c = S.sess.centre, ms = centreMeals();
+  var ppl = ms.map(function (m) { var p = eatGet(db, 'people', c, S.date, m); return '<div class="row"><span>' + m + '</span>' + (p ? '<span style="display:flex;gap:8px;align-items:center"><span class="b num">' + plural(p.data.n, 'plate', 'plates') + '</span><span class="pill ok">Saved</span></span>' : '<span class="pill warn">To do</span>') + '</div>'; }).join('');
+  var food = ms.map(function (m) { var st = foodState(m); return '<div class="row"><span>' + m + '</span><span class="pill ' + st[1] + '">' + st[0] + '</span></div>'; }).join('');
+  return dayBar() +
+    '<div class="card"><div style="display:flex;align-items:center;gap:8px;color:var(--blue)">' + ic('people') + '<span class="b" style="font-size:18px">People</span></div><div>' + ppl + '</div><button class="btn pri big" data-a="go" data-to="people">Count people</button></div>' +
+    '<div class="card"><div style="display:flex;align-items:center;gap:8px;color:var(--blue)">' + ic('food') + '<span class="b" style="font-size:18px">Food</span></div><div>' + food + '</div><button class="btn pri big" data-a="go" data-to="food">Count food</button></div>';
+};
+
+/* ---------- people ---------- */
+function draftKey() { return 'people|' + S.sess.centre + '|' + S.date + '|' + S.meal; }
+SCREENS.people = function () {
+  var saved = eatGet(view(), 'people', S.sess.centre, S.date, S.meal), n = S.f.n, dirty = !saved || saved.data.n !== n;
+  return dayBar() + mealSeg() +
+    '<div style="display:flex;justify-content:center;padding:18px 0 6px"><button class="tap" data-a="tap" aria-label="Add one plate"><span class="num" style="font-size:88px;font-weight:800;line-height:1" id="cnt">' + n + '</span><span style="font-size:20px;font-weight:700">Tap: +1</span></button></div>' +
+    '<div style="text-align:center" id="pst">' + (saved ? (dirty ? '<span class="pill em">Not saved yet · saved: ' + saved.data.n + '</span>' : '<span class="pill ok">Saved</span>') : (n ? '<span class="pill em">Not saved yet</span>' : '')) + '</div>' +
+    '<div style="display:flex;gap:8px"><button class="btn" data-a="undo" style="flex:1 1 0">Undo</button><button class="btn pri" data-a="savePeople" style="flex:2 1 0">Save ' + S.meal.toLowerCase() + '</button></div>' +
+    (S.f.typing ? '<div class="card"><label class="lab" for="tn">Number of plates</label><input id="tn" class="in num" type="number" inputmode="numeric" min="0" value="' + n + '" data-f="tn" data-focus><button class="btn" data-a="typeOk">OK</button></div>' : '<button class="btn link" data-a="typing">Type the number</button>');
+};
+
+/* ---------- food ---------- */
+function stepBtn(n, title, sub, to, cls) {
+  return '<button class="step" data-a="go" data-to="' + to + '"><span class="dot ' + cls + '">' + (cls === 'ok' ? ic('check') : n) + '</span><span style="flex:1 1 auto;display:flex;flex-direction:column"><span class="b">' + title + '</span><span class="m s">' + sub + '</span></span>' + ic('next') + '</button>';
+}
+function qtyLine(db, q, unitOf) {
+  var parts = []; for (var id in q) { if (q[id] == null) continue; var it = eatItem(db, id); if (id === 'pcs') parts.push(q[id] + ' pieces'); else if (it) parts.push(it.name + ' ' + fmt(q[id]) + ' ' + (unitOf === 'unit' ? it.unit : it.use)); }
+  return parts.join(' · ');
+}
+SCREENS.food = function () {
+  var db = view(), c = S.sess.centre, d = S.date, m = S.meal;
+  var menu = eatGet(db, 'menu', c, d, m), b = eatGet(db, 'before', c, d, m), a = eatGet(db, 'after', c, d, m), sk = eatGet(db, 'skip', c, d, m);
+  var skipped = sk && sk.data.on;
+  var mn = eatMenuOf(db, c, d, m);
+  var menuTxt = (mn.mm ? 'Nshima' : '') + mn.relish.map(function (r) { var it = eatItem(db, r); return it ? ', ' + it.name.toLowerCase() : ''; }).join('') + (mn.veg ? ', ' + mn.veg.toLowerCase() : '');
+  var out = dayBar() + mealSeg();
+  if (skipped) out += '<div class="box em">' + m + ': food not counted. People are counted.</div><button class="btn" data-a="skip" data-on="0">Undo</button>';
+  else {
+    out += '<div style="display:flex;flex-direction:column;gap:8px">' +
+      stepBtn('1', 'What do we eat today?', esc(menuTxt.replace(/^, /, '')) + (menu ? '' : ' (plan)'), 'menu', menu ? 'ok' : 'em') +
+      stepBtn('2', 'Quantities before', b ? esc(qtyLine(db, b.data.q)) : 'What the cooks take out', 'before', b ? 'ok' : (menu ? 'em' : 'off')) +
+      stepBtn('3', 'Quantities after', a ? 'Saved' : 'Back to the store' + (eatLaterMeal(db, c, m) ? ' · kept for ' + eatLaterMeal(db, c, m).toLowerCase() : '') + ' · balance', 'after', a ? 'ok' : (b ? 'em' : 'off')) +
+      '</div><button class="btn" data-a="skip" data-on="1">I didn\'t count the food</button>';
+  }
+  var st = eatStock(db, c, d), rows = '';
+  db.items.forEach(function (it) { var s = st[it.id]; if (!s || (!s.start && !s.inn && !s.used)) return; rows += '<span>' + esc(it.name) + '<br><span class="m s">' + esc(it.unit) + '</span></span><span class="r num">' + fmt(s.start) + '</span><span class="r num">+' + fmt(s.inn) + '</span><span class="r num">−' + fmt(s.used) + (s.usedOk ? '' : '*') + '</span><span class="r num b">' + fmt(s.expected) + '</span>'; });
+  out += '<div class="sec" style="margin-top:6px">The week</div>' +
+    stepBtn('IN', 'Received', receivedSub(db, c), 'received', eatGet(db, 'received', c, d, '') ? 'ok' : 'off') +
+    stepBtn('END', 'End of week: what is left', 'Counted stock starts next week', 'endweek', eatGet(db, 'endweek', c, d, '') ? 'ok' : 'off') +
+    '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">In the store, ' + dayName(d) + '</span>' +
+    (rows ? '<div class="grid4"><span class="h">Item</span><span class="h r">Counted</span><span class="h r">In</span><span class="h r">Used</span><span class="h r">Now</span>' + rows + '</div><span class="m s" style="padding-top:6px">Counted ' + (st.mm && st.mm.startDate ? dayName(st.mm.startDate) : ': no count yet') + (rows.indexOf('*') >= 0 ? ' · * part not counted' : '') + '</span>' : '<span class="m">Nothing yet.</span>') + '</div>';
+  return out;
+};
+function receivedSub(db, c) {
+  var last = null; db.entries.forEach(function (e) { if (!e.del && e.type === 'received' && e.centre === c && (!last || e.date > last.date)) last = e; });
+  return last ? 'Last: ' + dayName(last.date) : 'Mostly Monday and Wednesday morning';
+}
+/* one quantity row: id, label, unit, value, not counted */
+function qRow(key, label, unit, val, nc, step) {
+  return '<div style="display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:10px">' +
+    '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><label for="q_' + key + '" class="lab">' + esc(label) + '</label>' +
+    (nc === undefined ? '' : '<button class="nc' + (nc ? ' on' : '') + '" data-a="nc" data-k="' + key + '" aria-pressed="' + !!nc + '">Not counted</button>') + '</div>' +
+    '<div style="display:flex;align-items:center;gap:8px"><button class="btn sq" data-a="step" data-k="' + key + '" data-s="-' + step + '" aria-label="Less"' + (nc ? ' disabled' : '') + '>−</button>' +
+    '<input id="q_' + key + '" class="in num" type="number" inputmode="decimal" min="0" step="any" value="' + (nc || val == null ? '' : val) + '" data-q="' + key + '"' + (nc ? ' disabled' : '') + ' style="text-align:right;font-size:20px;font-weight:700">' +
+    '<span class="m b" style="width:74px;flex-shrink:0">' + esc(unit) + '</span>' +
+    '<button class="btn sq" data-a="step" data-k="' + key + '" data-s="' + step + '" aria-label="More"' + (nc ? ' disabled' : '') + '>+</button></div></div>';
+}
+function stepOf(unit) { return unit === 'kg' ? 0.5 : 1; }
+function backLink() { return '<button class="btn link" data-a="go" data-to="food">' + ic('back') + 'Food</button>'; }
+function mealTitle() { return '<div class="sec">' + S.meal + ', ' + dayName(S.date) + '</div>'; }
+SCREENS.menu = function () {
+  var db = view(), f = S.f, relish = db.items.filter(function (it) { return it.relish; });
+  var plan = eatItem(db, EAT_PLAN[eatWeekday(S.date)]);
+  return backLink() + '<h1>What do we eat today?</h1><div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' + mealTitle() + (plan && S.meal !== 'Breakfast' ? '<span class="pill">' + WD[eatWeekday(S.date)] + ' plan: ' + esc(plan.name.toLowerCase()) + '</span>' : '') + '</div>' +
+    '<div class="card"><span class="lab">Mealie meal</span><button class="btn' + (f.mm ? ' on' : '') + '" data-a="mm" aria-pressed="' + !!f.mm + '">Nshima or porridge</button></div>' +
+    '<div class="card"><span class="lab">Relish</span><div class="seg" style="grid-template-columns:repeat(2,minmax(0,1fr))">' + relish.map(function (it) { var on = f.relish.indexOf(it.id) >= 0; return '<button class="btn' + (on ? ' on' : '') + '" data-a="relish" data-id="' + it.id + '" aria-pressed="' + on + '">' + esc(it.name) + '</button>'; }).join('') + '</div></div>' +
+    '<div class="card"><label for="veg" class="lab">Vegetable</label><input id="veg" class="in" type="text" value="' + esc(f.veg) + '" data-f="veg"></div>' +
+    '<button class="btn pri big" data-a="saveMenu">Save · next: quantities before</button>';
+};
+function foodRowsHtml(f, after) {
+  var db = view(), out = '';
+  f.rows.forEach(function (id) {
+    var it = eatItem(db, id);
+    out += qRow(id, (id === 'veg' && f.vegName ? f.vegName : it.name), it.use, f.q[id], !!f.nc[id], stepOf(it.use));
+    if (id === 'chk') out += qRow('pcs', after ? 'Chicken pieces back' : 'Chicken pieces cut', 'pieces', f.q.pcs, !!f.nc.pcs, 1);
+  });
+  return out;
+}
+SCREENS.before = function () {
+  return backLink() + '<h1>Quantities before</h1>' + mealTitle() + '<div class="box info">Weigh here, before handing over.</div>' +
+    '<div class="card" style="gap:12px">' + (S.f.rows.length ? foodRowsHtml(S.f, false) : '<span class="m">No food on the menu.</span>') + '</div>' +
+    '<button class="btn pri big" data-a="saveBefore">Save</button>';
+};
+SCREENS.after = function () {
+  var db = view(), later = eatLaterMeal(db, S.sess.centre, S.meal), f = S.f;
+  var b = eatGet(db, 'before', S.sess.centre, S.date, S.meal);
+  if (!b) return backLink() + '<h1>Quantities after</h1>' + mealTitle() + '<div class="card">First save the quantities before.</div><button class="btn pri" data-a="go" data-to="before">Quantities before</button>';
+  return backLink() + '<h1>Quantities after</h1>' + mealTitle() +
+    '<div class="sec">Back to the store</div><div class="card" style="gap:12px">' + foodRowsHtml(f, true) + '</div>' +
+    (later ? '<div class="sec">Kept for ' + later.toLowerCase() + '</div><div class="card" style="gap:12px">' + qRow('kept', 'Meals kept for ' + later.toLowerCase(), 'meals', f.kept, !!f.keptNc, 5) + '</div>' : '') +
+    '<div class="card" style="gap:4px" id="bal">' + balanceHtml() + '</div>' +
+    '<button class="btn pri big" data-a="saveAfter">Save</button>';
+};
+function balanceHtml() {
+  var db = view(), f = S.f, c = S.sess.centre, b = eatGet(db, 'before', c, S.date, S.meal), p = eatGet(db, 'people', c, S.date, S.meal);
+  if (!b) return '';
+  var kept = f.keptNc ? null : eatNum(f.kept), base = p ? p.data.n + (kept || 0) : null;
+  var out = '<div class="sec">Balance</div>';
+  f.rows.forEach(function (id) {
+    var it = eatItem(db, id), bq = b.data.q[id], bnc = b.data.nc && b.data.nc[id], back = f.nc[id] ? null : eatNum(f.q[id]);
+    var used = bnc || bq == null || f.nc[id] ? null : Math.max(0, bq - (back || 0));
+    var per = used != null && base ? used / base : null;
+    var perTxt = per == null ? '–' : (it.use === 'kg' ? Math.round(per * 1000) + ' g a plate' : fmt(per) + ' ' + it.use + ' a plate');
+    if (id === 'chk' && base) { var pc = b.data.q.pcs, pnc = b.data.nc && b.data.nc.pcs, pb = f.nc.pcs ? null : eatNum(f.q.pcs); if (pc != null && !pnc && !f.nc.pcs) perTxt = fmt(Math.max(0, pc - (pb || 0)) / base) + ' pieces a plate'; }
+    out += '<div class="row"><span style="display:flex;flex-direction:column"><span class="b">' + esc(it.name) + '</span><span class="m s">' + (used == null ? 'Not counted' : 'Used ' + fmt(used) + ' ' + esc(it.use)) + '</span></span><span class="num b">' + perTxt + '</span></div>';
+  });
+  out += '<span class="m s">' + (p ? p.data.n + ' plates' + (kept ? ' + ' + kept + ' kept' : '') : 'Count people for this meal to see the amount a plate.') + '</span>';
+  return out;
+}
+SCREENS.received = function () {
+  var db = view();
+  return backLink() + '<h1>Received</h1>' + dayBar() +
+    '<div class="card" style="gap:12px">' + db.items.filter(function (it) { return it.stock; }).map(function (it) { return qRow(it.id, it.name, it.unit, S.f.q[it.id], undefined, stepOf(it.unit)); }).join('') + '</div>' +
+    '<button class="btn pri big" data-a="saveReceived">Save</button>';
+};
+function endPill(it, s) {
+  var f = S.f, n = f.nc[it.id] ? null : eatNum(f.q[it.id]), d = n == null || s.expected == null ? null : Math.round((n - s.expected) * 100) / 100;
+  return f.nc[it.id] ? '<span class="pill off">Not counted</span>' : (d == null ? '' : (d === 0 ? '<span class="pill ok">As expected</span>' : (d < 0 ? '<span class="pill em">' + d + ' ' + esc(it.unit) + ' missing</span>' : '<span class="pill warn">+' + d + ' ' + esc(it.unit) + ' more</span>')));
+}
+SCREENS.endweek = function () {
+  var db = view(), st = eatStock(db, S.sess.centre, S.date), f = S.f;
+  var rows = db.items.filter(function (it) { return it.stock; }).map(function (it) {
+    var s = st[it.id], pill = endPill(it, s);
+    return qRow(it.id, it.name, it.unit, f.q[it.id], !!f.nc[it.id], stepOf(it.unit)) +
+      '<div class="m s num">' + (s.startDate ? 'Counted ' + dayName(s.startDate) + ' ' : 'Start ') + fmt(s.start) + ' + in ' + fmt(s.inn) + ' − used ' + fmt(s.used) + (s.usedOk ? '' : ' (part not counted)') + ' = expected ' + fmt(s.expected) + '</div><div id="d_' + it.id + '">' + pill + '</div>';
+  }).join('');
+  return backLink() + '<h1>End of week: what is left</h1>' + dayBar() + '<div class="card" style="gap:12px">' + rows + '</div>' +
+    '<button class="btn pri big" data-a="saveEnd">Save and carry to next week</button>';
+};
+
+/* ---------- overview ---------- */
+function weekBar() {
+  var mon = S.week, sun = eatAddDays(mon, 6), cur = eatMonday(todayStr()) === mon;
+  return '<div class="daybar ' + (cur ? 'today' : 'past') + '"><button class="btn sq" style="border:0" data-a="wk" data-d="-7" aria-label="Week before">' + ic('back') + '</button>' +
+    '<span style="display:flex;flex-direction:column;align-items:center"><span class="b" style="font-size:18px">' + dayName(mon) + ' – ' + dayName(sun) + '</span><span class="s b">' + (cur ? 'This week' : 'Another week') + '</span></span>' +
+    (cur ? '<span style="width:48px"></span>' : '<button class="btn sq" style="border:0" data-a="wk" data-d="7" aria-label="Week after">' + ic('next') + '</button>') + '</div>';
+}
+function weekStats(db, c) {
+  var out = { meals: {}, use: {}, base: {}, foodMeals: 0, foodDone: 0, skipped: 0, peopleMissing: 0 }, cen = eatCentre(db, c), t = todayStr();
+  cen.meals.forEach(function (m) { out.meals[m] = { plates: 0, days: 0 }; });
+  for (var i = 0; i < 7; i++) {
+    var d = eatAddDays(S.week, i); if (d > t) break;
+    cen.meals.forEach(function (m) {
+      var u = eatMealUse(db, c, d, m);
+      if (u.plates != null) { out.meals[m].plates += u.plates; out.meals[m].days++; } else out.peopleMissing++;
+      out.foodMeals++;
+      if (u.skipped) { out.skipped++; return; }
+      if (u.hasAfter) out.foodDone++;
+      if (!u.hasAfter || u.base == null) return;
+      for (var id in u.used) { if (u.used[id] == null) continue; out.use[id] = (out.use[id] || 0) + u.used[id]; out.base[id] = (out.base[id] || 0) + u.base; }
+    });
+  }
+  return out;
+}
+SCREENS.overview = function () {
+  var db = view(), stats = {};
+  db.centres.forEach(function (c) { stats[c.id] = weekStats(db, c.id); });
+  var it = eatItem(db, S.item) || db.items[0];
+  var vals = db.centres.map(function (c) { var s = stats[c.id]; return s.base[it.id] ? s.use[it.id] / s.base[it.id] : null; });
+  var max = Math.max.apply(null, vals.map(function (v) { return v || 0; })) || 1;
+  var unitTxt = it.use === 'kg' ? 'g a plate' : it.use + ' a plate';
+  var bars = db.centres.map(function (c, i) {
+    var v = vals[i], s = stats[c.id];
+    return '<div style="display:flex;flex-direction:column;gap:4px"><div style="display:flex;justify-content:space-between"><span class="b">' + esc(c.name) + '</span><span class="num b">' + (v == null ? '–' : (it.use === 'kg' ? Math.round(v * 1000) : fmt(v))) + '</span></div><div class="bar"><i style="width:' + (v == null ? 0 : Math.round(v / max * 100)) + '%"></i></div><span class="m s">Food counted for ' + s.foodDone + ' of ' + s.foodMeals + ' meals' + (s.skipped ? ' · ' + s.skipped + ' not counted' : '') + '</span></div>';
+  }).join('');
+  var plates = db.centres.map(function (c) {
+    var s = stats[c.id];
+    return '<div class="card" style="gap:0"><div class="b" style="font-size:18px;padding-bottom:4px">' + esc(c.name) + '</div>' + c.meals.map(function (m) { var x = s.meals[m]; return '<div class="row"><span>' + m + '</span><span class="num">' + (x.days ? '<span class="b">' + Math.round(x.plates / x.days) + '</span> a day · ' + x.plates + ' in ' + plural(x.days, 'day', 'days') : '<span class="m">No count</span>') + '</span></div>'; }).join('') + '</div>';
+  }).join('');
+  return '<h1>Overview</h1>' + weekBar() +
+    '<div class="sec">Plates</div>' + plates +
+    '<div class="sec">Food a plate</div><div class="chips">' + db.items.map(function (x) { return '<button class="btn' + (x.id === it.id ? ' on' : '') + '" data-a="item" data-id="' + x.id + '">' + esc(x.name) + '</button>'; }).join('') + '</div>' +
+    '<div class="card" style="gap:12px"><div style="display:flex;justify-content:space-between"><span class="b" style="font-size:18px">' + esc(it.name) + '</span><span class="m s b">' + unitTxt + '</span></div>' + bars + '</div>' +
+    '<div class="sec">In the store now</div>' + db.centres.map(function (c) { return stockCard(db, c.id); }).join('') +
+    '<button class="btn" data-a="export">Export in Excel</button><div class="ver">CYP EAT ' + EAT_VERSION + (S.lastSync ? ' · updated ' + new Date(S.lastSync).toTimeString().slice(0, 5) : '') + '</div>';
+};
+function stockCard(db, c) {
+  var st = eatStock(db, c, todayStr()), rows = '';
+  db.items.forEach(function (it) { var s = st[it.id]; if (!s || (!s.start && !s.inn && !s.used)) return; rows += '<span>' + esc(it.name) + '<br><span class="m s">' + esc(it.unit) + '</span></span><span class="r num">' + fmt(s.start) + '</span><span class="r num">+' + fmt(s.inn) + '</span><span class="r num">−' + fmt(s.used) + '</span><span class="r num b">' + fmt(s.expected) + '</span>'; });
+  return '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">' + esc(centreName(c)) + '</span>' + (rows ? '<div class="grid4"><span class="h">Item</span><span class="h r">Counted</span><span class="h r">In</span><span class="h r">Used</span><span class="h r">Now</span>' + rows + '</div>' : '<span class="m">Nothing yet.</span>') + '</div>';
+}
+SCREENS.settings = function () {
+  var db = view(), names = (db.names || []).filter(function (n) { return n.active; }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+  var open = (db.comments || []).filter(function (c) { return !c.done; }).length;
+  return '<h1>Settings</h1>' +
+    '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Names</span>' +
+    (names.length ? names.map(function (n) { return '<div class="row"><span class="b">' + esc(n.name) + '</span><span style="display:flex;gap:8px;align-items:center"><span class="pill">' + esc(n.role) + '</span><button class="nc" data-a="nameOff" data-id="' + esc(n.id) + '">Remove</button></span></div>'; }).join('') : '<span class="m">No names yet.</span>') +
+    '<div style="display:flex;flex-direction:column;gap:8px;border-top:2px solid var(--ink);padding-top:10px;margin-top:6px"><label for="nn" class="lab">Add a name</label><input id="nn" class="in" type="text" data-f="nn" value="' + esc(S.f.nn || '') + '">' +
+    '<div class="seg" style="grid-template-columns:repeat(3,minmax(0,1fr))">' + EAT_ROLES.map(function (r) { return '<button class="btn' + ((S.f.role || 'Volunteer') === r ? ' on' : '') + '" data-a="role" data-r="' + r + '">' + r + '</button>'; }).join('') + '</div>' +
+    '<button class="btn pri" data-a="nameAdd">Add</button></div></div>' +
+    '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Centres and meals</span>' + db.centres.map(function (c) {
+      return '<div class="row" style="flex-direction:column;align-items:stretch"><span class="b">' + esc(c.name) + '</span><div class="seg" style="grid-template-columns:repeat(3,minmax(0,1fr))">' + EAT_MEALS.map(function (m) { var on = c.meals.indexOf(m) >= 0; return '<button class="btn' + (on ? ' on' : '') + '" data-a="cmeal" data-id="' + c.id + '" data-m="' + m + '" aria-pressed="' + on + '">' + m + '</button>'; }).join('') + '</div></div>';
+    }).join('') + '</div>' +
+    '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Units</span>' + db.items.filter(function (it) { return it.unit !== it.use; }).map(function (it) {
+      return '<div class="row"><label for="per_' + it.id + '">1 ' + esc(it.unit.replace(/s$/, '')) + ' of ' + esc(it.name.toLowerCase()) + ' =</label><span style="display:flex;gap:6px;align-items:center"><input id="per_' + it.id + '" class="in num" style="width:90px;text-align:right" type="number" inputmode="decimal" value="' + (it.per || '') + '" data-per="' + it.id + '"><span class="m b">' + esc(it.use) + '</span></span></div>';
+    }).join('') + '<button class="btn" data-a="savePer" style="margin-top:8px">Save the units</button></div>' +
+    '<div class="card"><span class="b" style="font-size:18px">PINs</span><button class="btn" data-a="pinChange" data-w="entry">Change the data entry PIN</button><button class="btn" data-a="pinChange" data-w="admin">Change the overview PIN</button></div>' +
+    '<div class="card"><span class="b" style="font-size:18px">Link for the people who count</span><button class="btn" data-a="copyLink">Copy the link</button><span class="m s">Send the link and, in another message, the data entry PIN.</span></div>' +
+    '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Comments on the app' + (open ? ' (' + open + ' open)' : '') + '</span>' + ((db.comments || []).length ? db.comments.slice().sort(function (a, b) { return a.at < b.at ? 1 : -1; }).map(function (c) {
+      return '<div class="row" style="flex-direction:column;align-items:stretch;gap:4px"><span class="m s">' + esc(c.byName || '') + ' · ' + esc(c.screen) + ' · ' + esc(localTime(c.at)) + '</span><span' + (c.done ? ' class="m"' : '') + '>' + esc(c.text) + '</span><button class="nc' + (c.done ? ' on' : '') + '" data-a="cdone" data-id="' + esc(c.id) + '" style="align-self:flex-start">' + (c.done ? 'Done · open again' : 'Done') + '</button></div>';
+    }).join('') : '<span class="m">None yet.</span>') + '</div>' +
+    '<div class="ver">CYP EAT ' + EAT_VERSION + '</div>';
+};
+
+/* ---------- comment and PIN windows ---------- */
+function commentModal() {
+  return '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="cmt"><div class="sheet"><h2 id="cmt">Comment on this screen</h2><label for="ct" class="lab">Your comment</label><textarea id="ct" class="in" data-f="ct" data-focus>' + esc(S.f.ct || '') + '</textarea>' +
+    (S.sess && S.sess.mode === 'admin' ? '<label for="cn" class="lab">Your name</label><input id="cn" class="in" data-f="cn" value="' + esc(S.f.cn || KV.get('cname', '')) + '">' : '') +
+    '<div style="display:flex;gap:8px"><button class="btn" data-a="modalClose" style="flex:1 1 0">Cancel</button><button class="btn pri" data-a="commentSave" style="flex:2 1 0">Save the comment</button></div></div></div>';
+}
+function pinModal() {
+  return '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="pt"><div class="sheet"><h2 id="pt">' + (S.f.which === 'entry' ? 'New data entry PIN' : 'New overview PIN') + '</h2>' +
+    '<label for="np1" class="lab">New PIN (4 to 8 numbers)</label><input id="np1" class="in" type="password" inputmode="numeric" autocomplete="off" data-f="np1" value="' + esc(S.f.np1 || '') + '" data-focus>' +
+    '<label for="np2" class="lab">New PIN again</label><input id="np2" class="in" type="password" inputmode="numeric" autocomplete="off" data-f="np2" value="' + esc(S.f.np2 || '') + '">' +
+    (S.msg ? '<div class="box em">' + esc(S.msg) + '</div>' : '') +
+    '<div style="display:flex;gap:8px"><button class="btn" data-a="modalClose" style="flex:1 1 0">Cancel</button><button class="btn pri" data-a="pinSave" style="flex:2 1 0">Save</button></div></div></div>';
+}
+
+/* ===================== entering a screen: fill the form from what is saved ===================== */
+function enter(scr) {
+  if (!S.sess) return;
+  var db = view(), c = S.sess.centre, d = S.date, m = S.meal, e;
+  if (scr === 'people') {
+    var dr = KV.get('draft', {})[draftKey()];
+    e = eatGet(db, 'people', c, d, m);
+    S.f = { n: dr != null ? dr : (e ? e.data.n : 0), hist: [] };
+  }
+  if (scr === 'menu') { var mn = eatMenuOf(db, c, d, m); S.f = { mm: mn.mm, relish: mn.relish, veg: mn.veg }; }
+  if (scr === 'before' || scr === 'after') {
+    var rows = eatRows(db, c, d, m), b = eatGet(db, 'before', c, d, m);
+    if (scr === 'after' && b) { rows = []; for (var id in b.data.q) if (id !== 'pcs') rows.push(id); for (id in (b.data.nc || {})) if (id !== 'pcs' && rows.indexOf(id) < 0) rows.push(id); }
+    e = eatGet(db, scr, c, d, m);
+    S.f = { rows: rows, q: e ? JSON.parse(JSON.stringify(e.data.q)) : {}, nc: e ? JSON.parse(JSON.stringify(e.data.nc || {})) : {}, vegName: eatMenuOf(db, c, d, m).veg };
+    if (scr === 'after') { S.f.kept = e ? e.data.kept : null; S.f.keptNc = e ? !!e.data.keptNc : false; }
+  }
+  if (scr === 'received') { e = eatGet(db, 'received', c, d, ''); S.f = { q: e ? JSON.parse(JSON.stringify(e.data.q)) : {}, nc: {} }; }
+  if (scr === 'endweek') { e = eatGet(db, 'endweek', c, d, ''); S.f = { q: e ? JSON.parse(JSON.stringify(e.data.q)) : {}, nc: e ? JSON.parse(JSON.stringify(e.data.nc || {})) : {} }; }
+}
+function defaultMeal() {
+  var ms = centreMeals(), h = new Date(Date.now() + 2 * 3600000).getUTCHours();
+  var want = h < 10 ? 'Breakfast' : (h < 16 ? 'Lunch' : 'Dinner');
+  if (ms.indexOf(want) >= 0) return want;
+  return ms.indexOf('Lunch') >= 0 ? 'Lunch' : ms[0];
+}
+function startSession() {
+  S.fullNext = true; /* a new sign in reads everything again: the overview also gets the comments */
+  S.date = todayStr(); S.week = eatMonday(S.date);
+  if (S.sess.mode === 'admin') { S.scr = 'overview'; }
+  else if (!S.sess.nid) S.scr = 'name';
+  else if (!S.sess.centre) S.scr = 'centre';
+  else { S.meal = defaultMeal(); S.scr = 'today'; }
+  enter(S.scr); render(); sync();
+}
+function signOut(msg) { S.sess = null; KV.del('sess'); S.scr = 'signin'; S.pin = ''; S.msg = msg || ''; S.notice = msg || ''; render(); }
+
+/* ===================== actions ===================== */
+var A = {};
+A.go = function (el) { go(el.getAttribute('data-to')); };
+A.hideNotice = function () { S.notice = ''; render(); };
+A.install = function () { if (!S.installEvt) return; S.installEvt.prompt(); S.installEvt.userChoice.then(function () { S.installEvt = null; render(); }); };
+A.installNo = function () { KV.set('installNo', true); render(); };
+A.setupSave = function () {
+  var f = S.f, ok = function (p) { return /^\d{4,8}$/.test(p || ''); };
+  if (!ok(f.p1) || !ok(f.p3)) { S.msg = 'Each PIN: 4 to 8 numbers.'; return render(); }
+  if (f.p1 !== f.p2 || f.p3 !== f.p4) { S.msg = 'The two PINs written twice are not the same.'; return render(); }
+  if (f.p1 === f.p3) { S.msg = 'The two PINs must be different.'; return render(); }
+  var es = uid() + uid(), as = uid() + uid();
+  S.busy = true; render();
+  post({ action: 'setup', entry: { salt: es, cred: credOf(es, f.p1) }, admin: { salt: as, cred: credOf(as, f.p3) } }).then(function (res) {
+    S.busy = false;
+    if (!res || !res.ok) { S.msg = res && res.error === 'not_empty' ? 'The PINs are already set.' : 'Not saved. Try again.'; return render(); }
+    return hello().then(function () { S.f = {}; S.msg = ''; S.good = 'PINs saved. Now sign in with the overview PIN and add the names.'; S.scr = 'signin'; render(); });
+  }).catch(function () { S.busy = false; S.msg = 'No internet. The first use needs internet.'; render(); });
+};
+A.mode = function (el) { S.pinMode = el.getAttribute('data-m'); S.pin = ''; S.msg = ''; S.scr = 'pin'; render(); };
+A.key = function (el) {
+  var k = el.getAttribute('data-k');
+  if (k === 'del') { S.pin = S.pin.slice(0, -1); S.msg = ''; return render(); }
+  if (k !== 'ok') { if (S.pin.length < 8) S.pin += k; S.msg = ''; return render(); }
+  var mode = S.pinMode, st = (view().settings || {})[mode];
+  if (!st || !st.salt) { S.msg = 'Open CYP EAT once with internet.'; return render(); }
+  var cred = credOf(st.salt, S.pin), pin = S.pin;
+  function enterAs() { S.verif[mode] = sha256('v:' + cred); KV.set('verif', S.verif); var me = mode === 'entry' ? KV.get('me', {}) : {}; if (me.nid && !eatFind(view().names, me.nid)) me = {}; S.sess = { mode: mode, cred: cred, nid: me.nid || '', name: me.name || '', centre: me.centre || '' }; KV.set('sess', S.sess); S.pin = ''; S.good = ''; startSession(); }
+  S.busy = true; render();
+  post({ action: 'login', mode: mode, cred: cred }).then(function (res) {
+    S.busy = false; S.online = true;
+    if (res && res.ok) return enterAs();
+    S.pin = ''; S.msg = res && res.error === 'locked' ? 'Too many wrong PINs. Wait one minute.' : 'Wrong PIN.'; render();
+  }).catch(function () {
+    S.busy = false; S.online = false;
+    if (S.verif[mode] && S.verif[mode] === sha256('v:' + cred)) return enterAs();
+    S.pin = ''; S.msg = S.verif[mode] ? 'Wrong PIN.' : 'No internet. The first time on this phone needs internet.'; render();
+  });
+};
+function remember() { KV.set('sess', S.sess); KV.set('me', { nid: S.sess.nid, name: S.sess.name, centre: S.sess.centre }); }
+A.pickName = function (el) { var n = eatFind(view().names, el.getAttribute('data-id')); S.sess.nid = n.id; S.sess.name = n.name; remember(); S.scr = 'centre'; render(); };
+A.pickCentre = function (el) { S.sess.centre = el.getAttribute('data-id'); remember(); S.meal = defaultMeal(); go('today'); };
+A.who = function () { S.scr = 'name'; render(); };
+A.signout = function () { signOut(''); };
+A.day = function (el) { var d = Number(el.getAttribute('data-d')); S.date = d === 0 ? todayStr() : eatAddDays(S.date, d); if (S.date > todayStr()) S.date = todayStr(); fixMeal(); enter(S.scr); render(); };
+function fixMeal() { if (centreMeals().indexOf(S.meal) < 0) S.meal = defaultMeal(); }
+A.meal = function (el) { S.meal = el.getAttribute('data-m'); enter(S.scr); S.keepScroll = true; render(); };
+A.tap = function () {
+  vibrate(); S.f.n++;
+  var dr = KV.get('draft', {}); dr[draftKey()] = S.f.n; KV.set('draft', dr);
+  document.getElementById('cnt').textContent = S.f.n;
+  var saved = eatGet(view(), 'people', S.sess.centre, S.date, S.meal);
+  document.getElementById('pst').innerHTML = '<span class="pill em">Not saved yet' + (saved ? ' · saved: ' + saved.data.n : '') + '</span>';
+};
+A.undo = function () { if (S.f.n > 0) S.f.n--; var dr = KV.get('draft', {}); dr[draftKey()] = S.f.n; KV.set('draft', dr); S.keepScroll = true; render(); };
+A.typing = function () { S.f.typing = true; S.keepScroll = true; render(); };
+A.typeOk = function () { var n = Math.round(Number(S.f.tn)); if (isFinite(n) && n >= 0) { S.f.n = n; var dr = KV.get('draft', {}); dr[draftKey()] = n; KV.set('draft', dr); } S.f.typing = false; S.keepScroll = true; render(); };
+A.savePeople = function () {
+  saveEntry('people', S.meal, { n: S.f.n });
+  var dr = KV.get('draft', {}); delete dr[draftKey()]; KV.set('draft', dr);
+  S.notice = ''; S.keepScroll = true; render();
+};
+A.skip = function (el) { saveEntry('skip', S.meal, { on: el.getAttribute('data-on') === '1' }); S.keepScroll = true; render(); };
+A.mm = function () { S.f.mm = !S.f.mm; S.keepScroll = true; render(); };
+A.relish = function (el) { var id = el.getAttribute('data-id'), i = S.f.relish.indexOf(id); if (i >= 0) S.f.relish.splice(i, 1); else S.f.relish.push(id); S.keepScroll = true; render(); };
+A.saveMenu = function () { saveEntry('menu', S.meal, { mm: S.f.mm, relish: S.f.relish, veg: S.f.veg }); go('before'); };
+A.nc = function (el) {
+  var k = el.getAttribute('data-k');
+  if (k === 'kept') S.f.keptNc = !S.f.keptNc; else S.f.nc[k] = !S.f.nc[k];
+  S.keepScroll = true; render();
+};
+A.step = function (el) {
+  var k = el.getAttribute('data-k'), s = Number(el.getAttribute('data-s'));
+  var cur = k === 'kept' ? eatNum(S.f.kept) : eatNum(S.f.q[k]);
+  var nv = Math.max(0, Math.round(((cur || 0) + s) * 1000) / 1000);
+  if (k === 'kept') S.f.kept = nv; else S.f.q[k] = nv;
+  var inp = document.getElementById('q_' + k); if (inp) inp.value = nv;
+  liveUpdate();
+};
+function liveUpdate() {
+  var bal = document.getElementById('bal'); if (bal && S.scr === 'after') bal.innerHTML = balanceHtml();
+  if (S.scr === 'endweek') { var st = eatStock(view(), S.sess.centre, S.date); view().items.forEach(function (it) { var box = document.getElementById('d_' + it.id); if (box && st[it.id]) box.innerHTML = endPill(it, st[it.id]); }); }
+}
+function qData() { var q = {}, nc = {}; for (var k in S.f.q) q[k] = eatNum(S.f.q[k]); for (k in S.f.nc) if (S.f.nc[k]) { nc[k] = true; q[k] = null; } return { q: q, nc: nc }; }
+function missingRows() {
+  var miss = [];
+  S.f.rows.forEach(function (id) { if (!S.f.nc[id] && eatNum(S.f.q[id]) == null) miss.push(eatItem(view(), id).name); });
+  if (S.f.rows.indexOf('chk') >= 0 && !S.f.nc.pcs && eatNum(S.f.q.pcs) == null) miss.push('Chicken pieces');
+  return miss;
+}
+A.saveBefore = function () {
+  var miss = missingRows();
+  if (miss.length) { S.notice = 'Write a number or tap Not counted: ' + miss.join(', ') + '.'; return render(); }
+  var d = qData(); S.f.rows.forEach(function (id) { if (!(id in d.q)) d.q[id] = null; });
+  if (S.f.rows.indexOf('chk') >= 0 && !('pcs' in d.q)) d.q.pcs = null;
+  saveEntry('before', S.meal, d); S.notice = ''; go('food');
+};
+A.saveAfter = function () {
+  var d = qData(); S.f.rows.forEach(function (id) { if (!(id in d.q) || d.q[id] == null) d.q[id] = S.f.nc[id] ? null : (eatNum(S.f.q[id]) || 0); });
+  if (S.f.rows.indexOf('chk') >= 0 && !S.f.nc.pcs && d.q.pcs == null) d.q.pcs = 0;
+  d.kept = S.f.keptNc ? null : eatNum(S.f.kept); d.keptNc = !!S.f.keptNc;
+  saveEntry('after', S.meal, d); go('food');
+};
+A.saveReceived = function () { var d = qData(); saveEntry('received', '', { q: d.q }); go('food'); };
+A.saveEnd = function () {
+  var db = view(), miss = db.items.filter(function (it) { return it.stock && !S.f.nc[it.id] && eatNum(S.f.q[it.id]) == null; }).map(function (it) { return it.name; });
+  if (miss.length) { S.notice = 'Write a number or tap Not counted: ' + miss.join(', ') + '.'; return render(); }
+  saveEntry('endweek', '', qData()); S.notice = ''; go('food');
+};
+A.wk = function (el) { S.week = eatAddDays(S.week, Number(el.getAttribute('data-d'))); S.keepScroll = true; render(); };
+A.item = function (el) { S.item = el.getAttribute('data-id'); S.keepScroll = true; render(); };
+A.role = function (el) { S.f.role = el.getAttribute('data-r'); S.keepScroll = true; render(); };
+A.nameAdd = function () {
+  var nm = (S.f.nn || '').trim(); if (!nm) { S.notice = 'Write the name.'; return render(); }
+  queue({ kind: 'name_add', name: nm, role: S.f.role || 'Volunteer', nid: 'n' + uid() }); S.f.nn = ''; S.keepScroll = true; render();
+};
+A.nameOff = function (el) { var n = eatFind(view().names, el.getAttribute('data-id')); if (!n || !confirm('Remove ' + n.name + '?')) return; queue({ kind: 'name_off', nid: n.id }); S.keepScroll = true; render(); };
+A.cmeal = function (el) {
+  var c = eatCentre(view(), el.getAttribute('data-id')), m = el.getAttribute('data-m'), ms = c.meals.slice(), i = ms.indexOf(m);
+  if (i >= 0) { if (ms.length === 1) { S.notice = 'A centre needs at least one meal.'; return render(); } ms.splice(i, 1); } else ms.push(m);
+  queue({ kind: 'centre_meals', cid: c.id, meals: ms }); S.keepScroll = true; render();
+};
+A.savePer = function () {
+  var els = document.querySelectorAll('[data-per]'), n = 0;
+  for (var i = 0; i < els.length; i++) { var it = eatItem(view(), els[i].getAttribute('data-per')), v = eatNum(els[i].value); if (v != null && v !== it.per) { queue({ kind: 'item_per', iid: it.id, per: v }); n++; } }
+  S.good = n ? 'Units saved.' : 'Nothing changed.'; S.keepScroll = true; render();
+};
+A.pinChange = function (el) { S.f.which = el.getAttribute('data-w'); S.f.np1 = ''; S.f.np2 = ''; S.msg = ''; S.modal = pinModal; S.keepScroll = true; render(); };
+A.pinSave = function () {
+  var p = S.f.np1 || '';
+  if (!/^\d{4,8}$/.test(p)) { S.msg = '4 to 8 numbers.'; S.keepScroll = true; return render(); }
+  if (p !== S.f.np2) { S.msg = 'The two PINs are not the same.'; S.keepScroll = true; return render(); }
+  if (!S.online) { S.msg = 'Changing a PIN needs internet.'; S.keepScroll = true; return render(); }
+  var salt = uid() + uid(), cred = credOf(salt, p), w = S.f.which;
+  queue({ kind: 'pin_set', which: w, salt: salt, cred: cred });
+  if (w === 'admin') { S.sess.cred = cred; KV.set('sess', S.sess); S.verif.admin = sha256('v:' + cred); KV.set('verif', S.verif); }
+  S.modal = null; S.msg = ''; S.good = (w === 'entry' ? 'Data entry PIN' : 'Overview PIN') + ' changed.' + (w === 'entry' ? ' Send the new PIN to the people who count.' : ''); S.keepScroll = true; render();
+};
+A.copyLink = function () {
+  var code = btoa(S.cfg.url + '|' + S.cfg.key).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  var link = location.origin + location.pathname + '?db=' + code;
+  var done = function () { S.good = 'Link copied.'; S.keepScroll = true; render(); };
+  if (navigator.clipboard) navigator.clipboard.writeText(link).then(done, function () { prompt('Copy the link', link); });
+  else prompt('Copy the link', link);
+};
+A.cdone = function (el) { var c = eatFind(view().comments, el.getAttribute('data-id')); queue({ kind: 'comment_done', cid: c.id, done: !c.done }); S.keepScroll = true; render(); };
+A.comment = function () { S.f.ct = ''; S.modal = commentModal; S.keepScroll = true; render(); };
+A.modalClose = function () { S.modal = null; S.msg = ''; S.keepScroll = true; render(); };
+A.commentSave = function () {
+  var t = (S.f.ct || '').trim(); if (!t) return;
+  var who = S.sess.mode === 'admin' ? ((S.f.cn || KV.get('cname', '') || 'Overview').trim()) : S.sess.name;
+  if (S.sess.mode === 'admin' && S.f.cn) KV.set('cname', S.f.cn);
+  queue({ kind: 'comment', c: { text: t, screen: S.scr + (S.meal && NAV[S.scr] === 'food' ? ' · ' + S.meal : ''), byName: who, centre: S.sess.centre || '', version: EAT_VERSION } });
+  S.modal = null; S.good = 'Comment saved. Thank you.'; S.keepScroll = true; render();
+};
+A.export = function () { exportXlsx(); };
+
+/* ===================== Excel (from CYP FIN) ===================== */
+var CRC = (function () { var t = [], c; for (var n = 0; n < 256; n++) { c = n; for (var k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { var c = 0xFFFFFFFF; for (var i = 0; i < u8.length; i++) c = CRC[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function zipStore(files) {
+  var enc = new TextEncoder(), parts = [], central = [], offset = 0;
+  function u16(n) { return [n & 255, (n >>> 8) & 255]; }
+  function u32(n) { return [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255]; }
+  files.forEach(function (f) {
+    var name = enc.encode(f.name), data = enc.encode(f.text), crc = crc32(data);
+    var local = [].concat(u32(0x04034b50), u16(20), u16(0x0800), u16(0), u16(0), u16(0x5B6E), u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0));
+    parts.push(new Uint8Array(local), name, data);
+    central.push({ h: [].concat(u32(0x02014b50), u16(20), u16(20), u16(0x0800), u16(0), u16(0), u16(0x5B6E), u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0), u16(0), u16(0), u16(0), u32(0), u32(offset)), name: name });
+    offset += local.length + name.length + data.length;
+  });
+  var size = 0; central.forEach(function (c) { parts.push(new Uint8Array(c.h), c.name); size += c.h.length + c.name.length; });
+  parts.push(new Uint8Array([].concat(u32(0x06054b50), u16(0), u16(0), u16(files.length), u16(files.length), u32(size), u32(offset), u16(0))));
+  return new Blob(parts, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+function xmlEsc(x) { return String(x == null ? '' : x).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+function colName(i) { var s = ''; i++; while (i > 0) { var m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = (i - 1 - m) / 26; } return s; }
+function sheetXml(sh) {
+  var rows = [sh.head].concat(sh.rows), widths = sh.head.map(function (x) { return String(x).length; }), out = '';
+  rows.forEach(function (row, r) {
+    out += '<row r="' + (r + 1) + '">';
+    row.forEach(function (v, c) {
+      var ref = colName(c) + (r + 1), len = String(v == null ? '' : v).length;
+      if (len > widths[c]) widths[c] = len;
+      if (v == null || v === '') return;
+      if (typeof v === 'number' && isFinite(v)) out += '<c r="' + ref + '"><v>' + v + '</v></c>';
+      else out += '<c r="' + ref + '" t="inlineStr"' + (r === 0 ? ' s="1"' : '') + '><is><t xml:space="preserve">' + xmlEsc(v) + '</t></is></c>';
+    });
+    out += '</row>';
+  });
+  var cols = widths.map(function (w, i) { return '<col min="' + (i + 1) + '" max="' + (i + 1) + '" width="' + Math.min(60, Math.max(8, w + 2)) + '" customWidth="1"/>'; }).join('');
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><cols>' + cols + '</cols><sheetData>' + out + '</sheetData><autoFilter ref="A1:' + colName(sh.head.length - 1) + rows.length + '"/></worksheet>';
+}
+function makeXlsx(sheets) {
+  var X = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>', M = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main', R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships', P = 'http://schemas.openxmlformats.org/package/2006/relationships';
+  var files = [];
+  files.push({ name: '[Content_Types].xml', text: X + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' + sheets.map(function (sh, i) { return '<Override PartName="/xl/worksheets/sheet' + (i + 1) + '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'; }).join('') + '</Types>' });
+  files.push({ name: '_rels/.rels', text: X + '<Relationships xmlns="' + P + '"><Relationship Id="rId1" Type="' + R + '/officeDocument" Target="xl/workbook.xml"/></Relationships>' });
+  files.push({ name: 'xl/workbook.xml', text: X + '<workbook xmlns="' + M + '" xmlns:r="' + R + '"><bookViews><workbookView/></bookViews><sheets>' + sheets.map(function (sh, i) { return '<sheet name="' + xmlEsc(sh.name) + '" sheetId="' + (i + 1) + '" r:id="rId' + (i + 1) + '"/>'; }).join('') + '</sheets></workbook>' });
+  files.push({ name: 'xl/_rels/workbook.xml.rels', text: X + '<Relationships xmlns="' + P + '">' + sheets.map(function (sh, i) { return '<Relationship Id="rId' + (i + 1) + '" Type="' + R + '/worksheet" Target="worksheets/sheet' + (i + 1) + '.xml"/>'; }).join('') + '<Relationship Id="rId' + (sheets.length + 1) + '" Type="' + R + '/styles" Target="styles.xml"/></Relationships>' });
+  files.push({ name: 'xl/styles.xml', text: X + '<styleSheet xmlns="' + M + '"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>' });
+  sheets.forEach(function (sh, i) { files.push({ name: 'xl/worksheets/sheet' + (i + 1) + '.xml', text: sheetXml(sh) }); });
+  return zipStore(files);
+}
+function saveFile(name, blob) { try { var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); } catch (e) { S.notice = 'This screen cannot save files.'; render(); } }
+function exportXlsx() {
+  var db = view(), E = db.entries.filter(function (e) { return !e.del; }).sort(function (a, b) { return (a.date + a.centre + EAT_MEALS.indexOf(a.meal)) < (b.date + b.centre + EAT_MEALS.indexOf(b.meal)) ? -1 : 1; });
+  var people = { name: 'People', head: ['Date', 'Day', 'Centre', 'Meal', 'Plates', 'Counted by', 'Saved at'], rows: [] };
+  var food = { name: 'Food a meal', head: ['Date', 'Day', 'Centre', 'Meal', 'Menu', 'Item', 'Before', 'Back', 'Used', 'Unit', 'Plates', 'Kept for later meal', 'Amount a plate', 'Food not counted'], rows: [] };
+  var rec = { name: 'Received', head: ['Date', 'Day', 'Centre', 'Item', 'Quantity', 'Unit', 'By'], rows: [] };
+  var end = { name: 'End of week', head: ['Date', 'Day', 'Centre', 'Item', 'Expected', 'Counted', 'Difference', 'Unit', 'By'], rows: [] };
+  var seen = {};
+  E.forEach(function (e) {
+    var c = centreName(e.centre);
+    if (e.type === 'people') people.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, e.data.n, e.byName, localTime(e.saved)]);
+    if ((e.type === 'before' || e.type === 'skip') && !seen[e.centre + e.date + e.meal]) {
+      seen[e.centre + e.date + e.meal] = 1;
+      var u = eatMealUse(db, e.centre, e.date, e.meal), b = eatGet(db, 'before', e.centre, e.date, e.meal), a = eatGet(db, 'after', e.centre, e.date, e.meal), mn = eatMenuOf(db, e.centre, e.date, e.meal);
+      var menuTxt = [mn.mm ? 'Nshima' : ''].concat(mn.relish.map(function (r) { return eatItem(db, r).name; })).concat(mn.veg ? [mn.veg] : []).filter(Boolean).join(', ');
+      if (u.skipped) { food.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, menuTxt, '', '', '', '', '', u.plates, '', '', 'Yes']); return; }
+      if (!b) return;
+      for (var id in b.data.q) {
+        var it = id === 'pcs' ? { name: 'Chicken pieces', use: 'pieces' } : eatItem(db, id), per = id === 'pcs' ? null : eatPerPlate(u, id);
+        var used = id === 'pcs' ? u.pieces : u.used[id];
+        if (id === 'pcs' && u.pieces != null && u.hasAfter && u.base) per = u.pieces / u.base;
+        food.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, menuTxt, it.name, b.data.q[id] == null ? 'Not counted' : b.data.q[id], a ? (a.data.q[id] == null ? (a.data.nc && a.data.nc[id] ? 'Not counted' : '') : a.data.q[id]) : 'Not yet', used == null ? '' : used, it.use, u.plates, u.kept, per == null ? '' : (it.use === 'kg' ? Math.round(per * 1000) + ' g' : Math.round(per * 100) / 100), '']);
+      }
+    }
+    if (e.type === 'received') for (var r in e.data.q) if (e.data.q[r] != null) rec.rows.push([e.date, WD[eatWeekday(e.date)], c, eatItem(db, r).name, e.data.q[r], eatItem(db, r).unit, e.byName]);
+    if (e.type === 'endweek') { var st = eatStock(db, e.centre, e.date); for (var k in e.data.q) { var x = st[k], cnt = e.data.q[k]; end.rows.push([e.date, WD[eatWeekday(e.date)], c, eatItem(db, k).name, x ? x.expected : '', cnt == null ? 'Not counted' : cnt, cnt != null && x && x.expected != null ? Math.round((cnt - x.expected) * 100) / 100 : '', eatItem(db, k).unit, e.byName]); } }
+  });
+  var stock = { name: 'In the store now', head: ['Centre', 'Item', 'Last count', 'Date of the count', 'Received since', 'Used since', 'Now (expected)', 'Unit'], rows: [] };
+  db.centres.forEach(function (c) { var st = eatStock(db, c.id, todayStr()); db.items.forEach(function (it) { var s = st[it.id]; if (s) stock.rows.push([c.name, it.name, s.start, s.startDate || '', s.inn, s.used, s.expected, it.unit]); }); });
+  var com = { name: 'Comments', head: ['Time', 'Who', 'Screen', 'Comment', 'Done'], rows: (db.comments || []).map(function (c) { return [localTime(c.at), c.byName, c.screen, c.text, c.done ? 'Done' : '']; }) };
+  saveFile('CYP-EAT_' + todayStr() + '.xlsx', makeXlsx([people, food, rec, end, stock, com]));
+}
+
+/* ===================== events ===================== */
+document.addEventListener('click', function (ev) {
+  var el = ev.target.closest('[data-a]'); if (!el || el.disabled) return;
+  var a = el.getAttribute('data-a'); if (A[a]) { ev.preventDefault(); A[a](el); }
+});
+document.addEventListener('input', function (ev) {
+  var el = ev.target;
+  if (el.hasAttribute('data-f')) S.f[el.getAttribute('data-f')] = el.value;
+  if (el.hasAttribute('data-q')) { var k = el.getAttribute('data-q'); if (k === 'kept') S.f.kept = el.value; else S.f.q[k] = el.value; liveUpdate(); }
+});
+window.addEventListener('online', function () { S.online = true; sync(); render(); });
+window.addEventListener('offline', function () { S.online = false; render(); });
+window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); S.installEvt = e; render(); });
+setInterval(function () { if (S.sess && document.visibilityState === 'visible') sync(); }, 30000);
+document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && S.sess) sync(); });
+
+
+function boot() {
+  readLink();
+  if ('serviceWorker' in navigator && location.protocol === 'https:') { try { navigator.serviceWorker.register('sw.js').catch(function () {}); } catch (e) {} }
+  if (!S.cfg) { S.scr = 'nolink'; return render(); }
+  if (S.sess) { startSession(); hello(); return; }
+  S.scr = 'signin'; render();
+  hello().then(function (res) { if (res && res.empty) { S.scr = 'setup'; S.f = {}; } render(); });
+}
+boot();
+</script>
+</body>
+</html>
