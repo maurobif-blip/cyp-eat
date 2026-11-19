@@ -80,7 +80,7 @@ svg.ic{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;strok
 </style>
 </head>
 <body>
-<div id="app"></div>
+<div id="app"></div><div id="modal"></div>
 <script src="core.js"></script>
 <script>
 /* ===================== CYP EAT app ===================== */
@@ -190,7 +190,7 @@ function sync() {
     if (!res || !res.ok) {
       if (res && (res.error === 'pin' || res.error === 'empty')) { signOut('The PIN has changed. Sign in again.'); }
       else if (res && res.error === 'locked') S.notice = 'Too many wrong PINs. Wait one minute.';
-      render(); return;
+      bgRender(); return;
     }
     var bad = (res.results || []).filter(function (r) { return !r.ok; });
     if (bad.length) S.notice = plural(bad.length, 'change was', 'changes were') + ' refused by the database (' + bad.map(function (b) { return b.error; }).join(', ') + ').';
@@ -209,8 +209,8 @@ function sync() {
     sv.rev = res.rev; sv.settings = res.settings; sv.names = res.names; sv.centres = res.centres; sv.items = res.items; sv.empty = false;
     S.server = sv; saveServer(); changed(); S.lastSync = nowIso(); if (full) S.fullNext = false;
     if (S.queue.length) setTimeout(sync, 200);
-    render();
-  }).catch(function () { S.syncing = false; S.online = false; render(); });
+    bgRender();
+  }).catch(function () { S.syncing = false; S.online = false; bgRender(); });
 }
 function queue(op) {
   op.id = op.id || uid(); op.mode = S.sess.mode;
@@ -251,14 +251,29 @@ function render() {
   var body = fn();
   h = topBar() + '<main>' + noticeHtml() + body + '</main>';
   if (S.sess && NAV[scr]) h += navBar(NAV[scr]);
-  if (S.sess && scr !== 'pin' && !S.modal) h += '<button class="cbtn" data-a="comment">' + ic('talk') + 'Comment</button>';
-  if (S.modal) h += S.modal();
-  var y = window.scrollY;
+  if (S.sess && scr !== 'pin') h += '<button class="cbtn" data-a="comment">' + ic('talk') + 'Comment</button>';
+  var y = window.scrollY, same = S.shown === scr;
   app.innerHTML = h;
-  if (S.keepScroll) window.scrollTo(0, y); else window.scrollTo(0, 0);
-  S.keepScroll = false;
-  var af = app.querySelector('[data-focus]'); if (af) { try { af.focus(); } catch (e) {} }
+  /* a new screen starts at the top; the same screen stays where the person is */
+  if (S.keepScroll || same) window.scrollTo(0, y); else window.scrollTo(0, 0);
+  S.keepScroll = false; S.shown = scr; S.waiting = false;
+  if (!S.modal) { var af = app.querySelector('[data-focus]'); if (af) { try { af.focus({ preventScroll: true }); } catch (e) {} } }
 }
+/* new data from the database: do not redraw under someone who is typing */
+function bgRender() {
+  var ae = document.activeElement;
+  if (S.modal || (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA'))) { S.waiting = true; return; }
+  render();
+}
+/* the comment and PIN windows live outside the page, so the page under them never moves */
+function drawModal() {
+  var box = document.getElementById('modal'), had = box.innerHTML !== '';
+  box.innerHTML = S.modal ? S.modal() : '';
+  document.body.style.overflow = S.modal ? 'hidden' : '';
+  if (S.modal && !had) { var af = box.querySelector('[data-focus]'); if (af) { try { af.focus({ preventScroll: true }); } catch (e) {} } }
+}
+function openModal(fn) { S.modal = fn; drawModal(); }
+function closeModal() { S.modal = null; drawModal(); if (S.waiting) render(); }
 var NAV = { today: 'today', people: 'people', food: 'food', menu: 'food', before: 'food', after: 'food', received: 'food', endweek: 'food', overview: 'overview', settings: 'settings' };
 function go(scr) { S.scr = scr; S.f = {}; S.msg = ''; S.notice = ''; S.good = ''; enter(scr); render(); }
 
@@ -366,8 +381,16 @@ SCREENS.people = function () {
 function stepBtn(n, title, sub, to, cls) {
   return '<button class="step" data-a="go" data-to="' + to + '"><span class="dot ' + cls + '">' + (cls === 'ok' ? ic('check') : n) + '</span><span style="flex:1 1 auto;display:flex;flex-direction:column"><span class="b">' + title + '</span><span class="m s">' + sub + '</span></span>' + ic('next') + '</button>';
 }
+function menuText(db, mn, meal) {
+  var p = [];
+  if (mn.mm) p.push(meal === 'Breakfast' ? 'Porridge' : 'Nshima');
+  if (mn.bread) p.push('Bread');
+  mn.relish.forEach(function (r) { var it = eatItem(db, r); if (it) p.push(it.name.toLowerCase()); });
+  if (mn.veg) p.push(mn.veg.toLowerCase());
+  return p.join(', ').replace(/^./, function (x) { return x.toUpperCase(); });
+}
 function qtyLine(db, q, unitOf) {
-  var parts = []; for (var id in q) { if (q[id] == null) continue; var it = eatItem(db, id); if (id === 'pcs') parts.push(q[id] + ' pieces'); else if (it) parts.push(it.name + ' ' + fmt(q[id]) + ' ' + (unitOf === 'unit' ? it.unit : it.use)); }
+  var parts = []; for (var id in q) { if (q[id] == null) continue; var it = eatItem(db, id); if (id === 'pcs') parts.push(q[id] + ' pieces'); else if (it) parts.push(it.name + ' ' + fmt(q[id]) + ' ' + (unitOf && unitOf[id] === 'unit' ? it.unit : it.use)); }
   return parts.join(' · ');
 }
 SCREENS.food = function () {
@@ -375,21 +398,21 @@ SCREENS.food = function () {
   var menu = eatGet(db, 'menu', c, d, m), b = eatGet(db, 'before', c, d, m), a = eatGet(db, 'after', c, d, m), sk = eatGet(db, 'skip', c, d, m);
   var skipped = sk && sk.data.on;
   var mn = eatMenuOf(db, c, d, m);
-  var menuTxt = (mn.mm ? 'Nshima' : '') + mn.relish.map(function (r) { var it = eatItem(db, r); return it ? ', ' + it.name.toLowerCase() : ''; }).join('') + (mn.veg ? ', ' + mn.veg.toLowerCase() : '');
+  var menuTxt = menuText(db, mn, m);
   var out = dayBar() + mealSeg();
   if (skipped) out += '<div class="box em">' + m + ': food not counted. People are counted.</div><button class="btn" data-a="skip" data-on="0">Undo</button>';
   else {
     out += '<div style="display:flex;flex-direction:column;gap:8px">' +
       stepBtn('1', 'What do we eat today?', esc(menuTxt.replace(/^, /, '')) + (menu ? '' : ' (plan)'), 'menu', menu ? 'ok' : 'em') +
-      stepBtn('2', 'Quantities before', b ? esc(qtyLine(db, b.data.q)) : 'What the cooks take out', 'before', b ? 'ok' : (menu ? 'em' : 'off')) +
+      stepBtn('2', 'Quantities before', b ? esc(qtyLine(db, b.data.q, b.data.u)) : 'Food taken out for the menu of the day', 'before', b ? 'ok' : (menu ? 'em' : 'off')) +
       stepBtn('3', 'Quantities after', a ? 'Saved' : 'Back to the store' + (eatLaterMeal(db, c, m) ? ' · kept for ' + eatLaterMeal(db, c, m).toLowerCase() : '') + ' · balance', 'after', a ? 'ok' : (b ? 'em' : 'off')) +
       '</div><button class="btn" data-a="skip" data-on="1">I didn\'t count the food</button>';
   }
   var st = eatStock(db, c, d), rows = '';
   db.items.forEach(function (it) { var s = st[it.id]; if (!s || (!s.start && !s.inn && !s.used)) return; rows += '<span>' + esc(it.name) + '<br><span class="m s">' + esc(it.unit) + '</span></span><span class="r num">' + fmt(s.start) + '</span><span class="r num">+' + fmt(s.inn) + '</span><span class="r num">−' + fmt(s.used) + (s.usedOk ? '' : '*') + '</span><span class="r num b">' + fmt(s.expected) + '</span>'; });
   out += '<div class="sec" style="margin-top:6px">The week</div>' +
-    stepBtn('IN', 'Received', receivedSub(db, c), 'received', eatGet(db, 'received', c, d, '') ? 'ok' : 'off') +
-    stepBtn('END', 'End of week: what is left', 'Counted stock starts next week', 'endweek', eatGet(db, 'endweek', c, d, '') ? 'ok' : 'off') +
+    stepBtn('IN', 'Food delivered', receivedSub(db, c), 'received', eatGet(db, 'received', c, d, '') ? 'ok' : 'off') +
+    stepBtn('END', 'End of the week', 'What is left at the end of the week · carried to next week', 'endweek', eatGet(db, 'endweek', c, d, '') ? 'ok' : 'off') +
     '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">In the store, ' + dayName(d) + '</span>' +
     (rows ? '<div class="grid4"><span class="h">Item</span><span class="h r">Counted</span><span class="h r">In</span><span class="h r">Used</span><span class="h r">Now</span>' + rows + '</div><span class="m s" style="padding-top:6px">Counted ' + (st.mm && st.mm.startDate ? dayName(st.mm.startDate) : ': no count yet') + (rows.indexOf('*') >= 0 ? ' · * part not counted' : '') + '</span>' : '<span class="m">Nothing yet.</span>') + '</div>';
   return out;
@@ -399,38 +422,51 @@ function receivedSub(db, c) {
   return last ? 'Last: ' + dayName(last.date) : 'Mostly Monday and Wednesday morning';
 }
 /* one quantity row: id, label, unit, value, not counted */
-function qRow(key, label, unit, val, nc, step) {
+function qRow(key, label, unit, val, nc, step, tog) {
   return '<div style="display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--line);padding-top:10px">' +
     '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px"><label for="q_' + key + '" class="lab">' + esc(label) + '</label>' +
     (nc === undefined ? '' : '<button class="nc' + (nc ? ' on' : '') + '" data-a="nc" data-k="' + key + '" aria-pressed="' + !!nc + '">Not counted</button>') + '</div>' +
     '<div style="display:flex;align-items:center;gap:8px"><button class="btn sq" data-a="step" data-k="' + key + '" data-s="-' + step + '" aria-label="Less"' + (nc ? ' disabled' : '') + '>−</button>' +
     '<input id="q_' + key + '" class="in num" type="number" inputmode="decimal" min="0" step="any" value="' + (nc || val == null ? '' : val) + '" data-q="' + key + '"' + (nc ? ' disabled' : '') + ' style="text-align:right;font-size:20px;font-weight:700">' +
     '<span class="m b" style="width:74px;flex-shrink:0">' + esc(unit) + '</span>' +
-    '<button class="btn sq" data-a="step" data-k="' + key + '" data-s="' + step + '" aria-label="More"' + (nc ? ' disabled' : '') + '>+</button></div></div>';
+    '<button class="btn sq" data-a="step" data-k="' + key + '" data-s="' + step + '" aria-label="More"' + (nc ? ' disabled' : '') + '>+</button></div>' + (tog || '') + '</div>';
 }
-function stepOf(unit) { return unit === 'kg' ? 0.5 : 1; }
+function stepOf(unit) { return unit === 'kg' || unit === 'bags' ? 0.5 : 1; }
+/* the unit a row is written in: 'unit' (bags, trays) or 'use' (kg, eggs) */
+function rowUnit(it, u) { return it.unit !== it.use && u === 'unit' ? 'unit' : 'use'; }
+function unitTog(it, u) {
+  if (it.unit === it.use) return '';
+  var cur = rowUnit(it, u);
+  return '<div class="seg" role="group" aria-label="Unit for ' + esc(it.name) + '" style="grid-template-columns:repeat(2,minmax(0,1fr))">' +
+    ['unit', 'use'].map(function (x) { return '<button class="btn s' + (x === cur ? ' on' : '') + '" data-a="unit" data-k="' + it.id + '" data-v="' + x + '" aria-pressed="' + (x === cur) + '">In ' + esc(x === 'unit' ? it.unit : it.use) + '</button>'; }).join('') + '</div>';
+}
 function backLink() { return '<button class="btn link" data-a="go" data-to="food">' + ic('back') + 'Food</button>'; }
 function mealTitle() { return '<div class="sec">' + S.meal + ', ' + dayName(S.date) + '</div>'; }
 SCREENS.menu = function () {
   var db = view(), f = S.f, relish = db.items.filter(function (it) { return it.relish; });
   var plan = eatItem(db, EAT_PLAN[eatWeekday(S.date)]);
   return backLink() + '<h1>What do we eat today?</h1><div style="display:flex;justify-content:space-between;align-items:center;gap:8px">' + mealTitle() + (plan && S.meal !== 'Breakfast' ? '<span class="pill">' + WD[eatWeekday(S.date)] + ' plan: ' + esc(plan.name.toLowerCase()) + '</span>' : '') + '</div>' +
-    '<div class="card"><span class="lab">Mealie meal</span><button class="btn' + (f.mm ? ' on' : '') + '" data-a="mm" aria-pressed="' + !!f.mm + '">Nshima or porridge</button></div>' +
+    (S.meal === 'Breakfast' ?
+      '<div class="card"><span class="lab">Breakfast</span><div class="seg" style="grid-template-columns:repeat(2,minmax(0,1fr))">' +
+        '<button class="btn' + (f.mm ? ' on' : '') + '" data-a="bf" data-v="mm" aria-pressed="' + !!f.mm + '">Porridge</button>' +
+        '<button class="btn' + (f.bread ? ' on' : '') + '" data-a="bf" data-v="bread" aria-pressed="' + !!f.bread + '">Bread</button></div></div>' :
+      '<div class="card"><span class="lab">Mealie meal</span><button class="btn' + (f.mm ? ' on' : '') + '" data-a="mm" aria-pressed="' + !!f.mm + '">Nshima</button></div>' +
     '<div class="card"><span class="lab">Relish</span><div class="seg" style="grid-template-columns:repeat(2,minmax(0,1fr))">' + relish.map(function (it) { var on = f.relish.indexOf(it.id) >= 0; return '<button class="btn' + (on ? ' on' : '') + '" data-a="relish" data-id="' + it.id + '" aria-pressed="' + on + '">' + esc(it.name) + '</button>'; }).join('') + '</div></div>' +
-    '<div class="card"><label for="veg" class="lab">Vegetable</label><input id="veg" class="in" type="text" value="' + esc(f.veg) + '" data-f="veg"></div>' +
+    '<div class="card"><label for="veg" class="lab">Vegetable</label><input id="veg" class="in" type="text" value="' + esc(f.veg) + '" data-f="veg"></div>') +
     '<button class="btn pri big" data-a="saveMenu">Save · next: quantities before</button>';
 };
 function foodRowsHtml(f, after) {
   var db = view(), out = '';
   f.rows.forEach(function (id) {
     var it = eatItem(db, id);
-    out += qRow(id, (id === 'veg' && f.vegName ? f.vegName : it.name), it.use, f.q[id], !!f.nc[id], stepOf(it.use));
+    var un = rowUnit(it, f.u[id]), ut = un === 'unit' ? it.unit : it.use;
+    out += qRow(id, (id === 'veg' && f.vegName ? f.vegName : it.name), ut, f.q[id], !!f.nc[id], stepOf(ut), after ? '' : unitTog(it, f.u[id]));
     if (id === 'chk') out += qRow('pcs', after ? 'Chicken pieces back' : 'Chicken pieces cut', 'pieces', f.q.pcs, !!f.nc.pcs, 1);
   });
   return out;
 }
 SCREENS.before = function () {
-  return backLink() + '<h1>Quantities before</h1>' + mealTitle() + '<div class="box info">Weigh here, before handing over.</div>' +
+  return backLink() + '<h1>Quantities before</h1>' + mealTitle() + '<div class="box info">Write the food taken out of the store for the menu of the day, in kg, bags or trays.</div>' +
     '<div class="card" style="gap:12px">' + (S.f.rows.length ? foodRowsHtml(S.f, false) : '<span class="m">No food on the menu.</span>') + '</div>' +
     '<button class="btn pri big" data-a="saveBefore">Save</button>';
 };
@@ -451,18 +487,19 @@ function balanceHtml() {
   var out = '<div class="sec">Balance</div>';
   f.rows.forEach(function (id) {
     var it = eatItem(db, id), bq = b.data.q[id], bnc = b.data.nc && b.data.nc[id], back = f.nc[id] ? null : eatNum(f.q[id]);
-    var used = bnc || bq == null || f.nc[id] ? null : Math.max(0, bq - (back || 0));
+    var un = rowUnit(it, f.u[id]), usedRow = bnc || bq == null || f.nc[id] ? null : Math.max(0, Math.round((bq - (back || 0)) * 1000) / 1000);
+    var used = usedRow == null ? null : eatConv(it, usedRow, un).use;
     var per = used != null && base ? used / base : null;
     var perTxt = per == null ? '–' : (it.use === 'kg' ? Math.round(per * 1000) + ' g a plate' : fmt(per) + ' ' + it.use + ' a plate');
     if (id === 'chk' && base) { var pc = b.data.q.pcs, pnc = b.data.nc && b.data.nc.pcs, pb = f.nc.pcs ? null : eatNum(f.q.pcs); if (pc != null && !pnc && !f.nc.pcs) perTxt = fmt(Math.max(0, pc - (pb || 0)) / base) + ' pieces a plate'; }
-    out += '<div class="row"><span style="display:flex;flex-direction:column"><span class="b">' + esc(it.name) + '</span><span class="m s">' + (used == null ? 'Not counted' : 'Used ' + fmt(used) + ' ' + esc(it.use)) + '</span></span><span class="num b">' + perTxt + '</span></div>';
+    out += '<div class="row"><span style="display:flex;flex-direction:column"><span class="b">' + esc(it.name) + '</span><span class="m s">' + (usedRow == null ? 'Not counted' : 'Used ' + fmt(usedRow) + ' ' + esc(un === 'unit' ? it.unit : it.use) + (un === 'unit' && it.unit !== it.use ? (used == null ? '' : ' = ' + fmt(used) + ' ' + esc(it.use)) : '')) + '</span></span><span class="num b">' + perTxt + '</span></div>';
   });
   out += '<span class="m s">' + (p ? p.data.n + ' plates' + (kept ? ' + ' + kept + ' kept' : '') : 'Count people for this meal to see the amount a plate.') + '</span>';
   return out;
 }
 SCREENS.received = function () {
   var db = view();
-  return backLink() + '<h1>Received</h1>' + dayBar() +
+  return backLink() + '<h1>Food delivered</h1>' + dayBar() +
     '<div class="card" style="gap:12px">' + db.items.filter(function (it) { return it.stock; }).map(function (it) { return qRow(it.id, it.name, it.unit, S.f.q[it.id], undefined, stepOf(it.unit)); }).join('') + '</div>' +
     '<button class="btn pri big" data-a="saveReceived">Save</button>';
 };
@@ -477,7 +514,7 @@ SCREENS.endweek = function () {
     return qRow(it.id, it.name, it.unit, f.q[it.id], !!f.nc[it.id], stepOf(it.unit)) +
       '<div class="m s num">' + (s.startDate ? 'Counted ' + dayName(s.startDate) + ' ' : 'Start ') + fmt(s.start) + ' + in ' + fmt(s.inn) + ' − used ' + fmt(s.used) + (s.usedOk ? '' : ' (part not counted)') + ' = expected ' + fmt(s.expected) + '</div><div id="d_' + it.id + '">' + pill + '</div>';
   }).join('');
-  return backLink() + '<h1>End of week: what is left</h1>' + dayBar() + '<div class="card" style="gap:12px">' + rows + '</div>' +
+  return backLink() + '<h1>End of the week</h1><div class="sec">What is left at the end of the week</div>' + dayBar() + '<div class="card" style="gap:12px">' + rows + '</div>' +
     '<button class="btn pri big" data-a="saveEnd">Save and carry to next week</button>';
 };
 
@@ -578,12 +615,15 @@ function enter(scr) {
     e = eatGet(db, 'people', c, d, m);
     S.f = { n: dr != null ? dr : (e ? e.data.n : 0), hist: [] };
   }
-  if (scr === 'menu') { var mn = eatMenuOf(db, c, d, m); S.f = { mm: mn.mm, relish: mn.relish, veg: mn.veg }; }
+  if (scr === 'menu') { var mn = eatMenuOf(db, c, d, m); S.f = { mm: mn.mm, bread: mn.bread, relish: mn.relish, veg: mn.veg }; }
   if (scr === 'before' || scr === 'after') {
     var rows = eatRows(db, c, d, m), b = eatGet(db, 'before', c, d, m);
     if (scr === 'after' && b) { rows = []; for (var id in b.data.q) if (id !== 'pcs') rows.push(id); for (id in (b.data.nc || {})) if (id !== 'pcs' && rows.indexOf(id) < 0) rows.push(id); }
     e = eatGet(db, scr, c, d, m);
     S.f = { rows: rows, q: e ? JSON.parse(JSON.stringify(e.data.q)) : {}, nc: e ? JSON.parse(JSON.stringify(e.data.nc || {})) : {}, vegName: eatMenuOf(db, c, d, m).veg };
+    /* the unit of each row: as saved; after = the unit used before; new rows start in the store unit (bags, trays) */
+    var su = e && e.data.u ? e.data.u : null, bu = b && b.data.u ? b.data.u : {};
+    S.f.u = {}; rows.forEach(function (id) { var it = eatItem(db, id); if (!it || it.unit === it.use) return; S.f.u[id] = scr === 'after' ? (bu[id] || 'use') : (e ? ((su && su[id]) || 'use') : 'unit'); });
     if (scr === 'after') { S.f.kept = e ? e.data.kept : null; S.f.keptNc = e ? !!e.data.keptNc : false; }
   }
   if (scr === 'received') { e = eatGet(db, 'received', c, d, ''); S.f = { q: e ? JSON.parse(JSON.stringify(e.data.q)) : {}, nc: {} }; }
@@ -671,7 +711,14 @@ A.savePeople = function () {
 A.skip = function (el) { saveEntry('skip', S.meal, { on: el.getAttribute('data-on') === '1' }); S.keepScroll = true; render(); };
 A.mm = function () { S.f.mm = !S.f.mm; S.keepScroll = true; render(); };
 A.relish = function (el) { var id = el.getAttribute('data-id'), i = S.f.relish.indexOf(id); if (i >= 0) S.f.relish.splice(i, 1); else S.f.relish.push(id); S.keepScroll = true; render(); };
-A.saveMenu = function () { saveEntry('menu', S.meal, { mm: S.f.mm, relish: S.f.relish, veg: S.f.veg }); go('before'); };
+A.bf = function (el) { var v = el.getAttribute('data-v'); S.f.mm = v === 'mm'; S.f.bread = v === 'bread'; S.keepScroll = true; render(); };
+A.saveMenu = function () {
+  var bf = S.meal === 'Breakfast';
+  if (bf && !S.f.mm && !S.f.bread) { S.notice = 'Choose porridge or bread.'; return render(); }
+  saveEntry('menu', S.meal, bf ? { mm: !!S.f.mm, bread: !!S.f.bread, relish: [], veg: '' } : { mm: S.f.mm, bread: false, relish: S.f.relish, veg: S.f.veg });
+  go('before');
+};
+A.unit = function (el) { var k = el.getAttribute('data-k'); S.f.u[k] = el.getAttribute('data-v'); S.keepScroll = true; render(); };
 A.nc = function (el) {
   var k = el.getAttribute('data-k');
   if (k === 'kept') S.f.keptNc = !S.f.keptNc; else S.f.nc[k] = !S.f.nc[k];
@@ -701,12 +748,13 @@ A.saveBefore = function () {
   if (miss.length) { S.notice = 'Write a number or tap Not counted: ' + miss.join(', ') + '.'; return render(); }
   var d = qData(); S.f.rows.forEach(function (id) { if (!(id in d.q)) d.q[id] = null; });
   if (S.f.rows.indexOf('chk') >= 0 && !('pcs' in d.q)) d.q.pcs = null;
+  d.u = S.f.u || {};
   saveEntry('before', S.meal, d); S.notice = ''; go('food');
 };
 A.saveAfter = function () {
   var d = qData(); S.f.rows.forEach(function (id) { if (!(id in d.q) || d.q[id] == null) d.q[id] = S.f.nc[id] ? null : (eatNum(S.f.q[id]) || 0); });
   if (S.f.rows.indexOf('chk') >= 0 && !S.f.nc.pcs && d.q.pcs == null) d.q.pcs = 0;
-  d.kept = S.f.keptNc ? null : eatNum(S.f.kept); d.keptNc = !!S.f.keptNc;
+  d.kept = S.f.keptNc ? null : eatNum(S.f.kept); d.keptNc = !!S.f.keptNc; d.u = S.f.u || {};
   saveEntry('after', S.meal, d); go('food');
 };
 A.saveReceived = function () { var d = qData(); saveEntry('received', '', { q: d.q }); go('food'); };
@@ -733,16 +781,16 @@ A.savePer = function () {
   for (var i = 0; i < els.length; i++) { var it = eatItem(view(), els[i].getAttribute('data-per')), v = eatNum(els[i].value); if (v != null && v !== it.per) { queue({ kind: 'item_per', iid: it.id, per: v }); n++; } }
   S.good = n ? 'Units saved.' : 'Nothing changed.'; S.keepScroll = true; render();
 };
-A.pinChange = function (el) { S.f.which = el.getAttribute('data-w'); S.f.np1 = ''; S.f.np2 = ''; S.msg = ''; S.modal = pinModal; S.keepScroll = true; render(); };
+A.pinChange = function (el) { S.f.which = el.getAttribute('data-w'); S.f.np1 = ''; S.f.np2 = ''; S.msg = ''; openModal(pinModal); };
 A.pinSave = function () {
   var p = S.f.np1 || '';
-  if (!/^\d{4,8}$/.test(p)) { S.msg = '4 to 8 numbers.'; S.keepScroll = true; return render(); }
-  if (p !== S.f.np2) { S.msg = 'The two PINs are not the same.'; S.keepScroll = true; return render(); }
-  if (!S.online) { S.msg = 'Changing a PIN needs internet.'; S.keepScroll = true; return render(); }
+  if (!/^\d{4,8}$/.test(p)) { S.msg = '4 to 8 numbers.'; return drawModal(); }
+  if (p !== S.f.np2) { S.msg = 'The two PINs are not the same.'; return drawModal(); }
+  if (!S.online) { S.msg = 'Changing a PIN needs internet.'; return drawModal(); }
   var salt = uid() + uid(), cred = credOf(salt, p), w = S.f.which;
   queue({ kind: 'pin_set', which: w, salt: salt, cred: cred });
   if (w === 'admin') { S.sess.cred = cred; KV.set('sess', S.sess); S.verif.admin = sha256('v:' + cred); KV.set('verif', S.verif); }
-  S.modal = null; S.msg = ''; S.good = (w === 'entry' ? 'Data entry PIN' : 'Overview PIN') + ' changed.' + (w === 'entry' ? ' Send the new PIN to the people who count.' : ''); S.keepScroll = true; render();
+  S.msg = ''; closeModal(); S.good = (w === 'entry' ? 'Data entry PIN' : 'Overview PIN') + ' changed.' + (w === 'entry' ? ' Send the new PIN to the people who count.' : ''); S.keepScroll = true; render();
 };
 A.copyLink = function () {
   var code = btoa(S.cfg.url + '|' + S.cfg.key).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -752,14 +800,14 @@ A.copyLink = function () {
   else prompt('Copy the link', link);
 };
 A.cdone = function (el) { var c = eatFind(view().comments, el.getAttribute('data-id')); queue({ kind: 'comment_done', cid: c.id, done: !c.done }); S.keepScroll = true; render(); };
-A.comment = function () { S.f.ct = ''; S.modal = commentModal; S.keepScroll = true; render(); };
-A.modalClose = function () { S.modal = null; S.msg = ''; S.keepScroll = true; render(); };
+A.comment = function () { S.f.ct = ''; openModal(commentModal); };
+A.modalClose = function () { S.msg = ''; closeModal(); };
 A.commentSave = function () {
   var t = (S.f.ct || '').trim(); if (!t) return;
   var who = S.sess.mode === 'admin' ? ((S.f.cn || KV.get('cname', '') || 'Overview').trim()) : S.sess.name;
   if (S.sess.mode === 'admin' && S.f.cn) KV.set('cname', S.f.cn);
   queue({ kind: 'comment', c: { text: t, screen: S.scr + (S.meal && NAV[S.scr] === 'food' ? ' · ' + S.meal : ''), byName: who, centre: S.sess.centre || '', version: EAT_VERSION } });
-  S.modal = null; S.good = 'Comment saved. Thank you.'; S.keepScroll = true; render();
+  closeModal(); S.good = 'Comment saved. Thank you.'; S.keepScroll = true; render();
 };
 A.export = function () { exportXlsx(); };
 
@@ -814,8 +862,8 @@ function saveFile(name, blob) { try { var a = document.createElement('a'); a.hre
 function exportXlsx() {
   var db = view(), E = db.entries.filter(function (e) { return !e.del; }).sort(function (a, b) { return (a.date + a.centre + EAT_MEALS.indexOf(a.meal)) < (b.date + b.centre + EAT_MEALS.indexOf(b.meal)) ? -1 : 1; });
   var people = { name: 'People', head: ['Date', 'Day', 'Centre', 'Meal', 'Plates', 'Counted by', 'Saved at'], rows: [] };
-  var food = { name: 'Food a meal', head: ['Date', 'Day', 'Centre', 'Meal', 'Menu', 'Item', 'Before', 'Back', 'Used', 'Unit', 'Plates', 'Kept for later meal', 'Amount a plate', 'Food not counted'], rows: [] };
-  var rec = { name: 'Received', head: ['Date', 'Day', 'Centre', 'Item', 'Quantity', 'Unit', 'By'], rows: [] };
+  var food = { name: 'Food a meal', head: ['Date', 'Day', 'Centre', 'Meal', 'Menu', 'Item', 'Before', 'Back', 'Unit written', 'Used', 'Unit', 'Plates', 'Kept for later meal', 'Amount a plate', 'Food not counted'], rows: [] };
+  var rec = { name: 'Food delivered', head: ['Date', 'Day', 'Centre', 'Item', 'Quantity', 'Unit', 'By'], rows: [] };
   var end = { name: 'End of week', head: ['Date', 'Day', 'Centre', 'Item', 'Expected', 'Counted', 'Difference', 'Unit', 'By'], rows: [] };
   var seen = {};
   E.forEach(function (e) {
@@ -824,20 +872,20 @@ function exportXlsx() {
     if ((e.type === 'before' || e.type === 'skip') && !seen[e.centre + e.date + e.meal]) {
       seen[e.centre + e.date + e.meal] = 1;
       var u = eatMealUse(db, e.centre, e.date, e.meal), b = eatGet(db, 'before', e.centre, e.date, e.meal), a = eatGet(db, 'after', e.centre, e.date, e.meal), mn = eatMenuOf(db, e.centre, e.date, e.meal);
-      var menuTxt = [mn.mm ? 'Nshima' : ''].concat(mn.relish.map(function (r) { return eatItem(db, r).name; })).concat(mn.veg ? [mn.veg] : []).filter(Boolean).join(', ');
-      if (u.skipped) { food.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, menuTxt, '', '', '', '', '', u.plates, '', '', 'Yes']); return; }
+      var menuTxt = menuText(db, mn, e.meal);
+      if (u.skipped) { food.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, menuTxt, '', '', '', '', '', '', u.plates, '', '', 'Yes']); return; }
       if (!b) return;
       for (var id in b.data.q) {
         var it = id === 'pcs' ? { name: 'Chicken pieces', use: 'pieces' } : eatItem(db, id), per = id === 'pcs' ? null : eatPerPlate(u, id);
         var used = id === 'pcs' ? u.pieces : u.used[id];
         if (id === 'pcs' && u.pieces != null && u.hasAfter && u.base) per = u.pieces / u.base;
-        food.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, menuTxt, it.name, b.data.q[id] == null ? 'Not counted' : b.data.q[id], a ? (a.data.q[id] == null ? (a.data.nc && a.data.nc[id] ? 'Not counted' : '') : a.data.q[id]) : 'Not yet', used == null ? '' : used, it.use, u.plates, u.kept, per == null ? '' : (it.use === 'kg' ? Math.round(per * 1000) + ' g' : Math.round(per * 100) / 100), '']);
+        food.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, menuTxt, it.name, b.data.q[id] == null ? 'Not counted' : b.data.q[id], a ? (a.data.q[id] == null ? (a.data.nc && a.data.nc[id] ? 'Not counted' : '') : a.data.q[id]) : 'Not yet', id === 'pcs' ? 'pieces' : (rowUnit(it, (b.data.u || {})[id]) === 'unit' ? it.unit : it.use), used == null ? '' : used, it.use, u.plates, u.kept, per == null ? '' : (it.use === 'kg' ? Math.round(per * 1000) + ' g' : Math.round(per * 100) / 100), '']);
       }
     }
     if (e.type === 'received') for (var r in e.data.q) if (e.data.q[r] != null) rec.rows.push([e.date, WD[eatWeekday(e.date)], c, eatItem(db, r).name, e.data.q[r], eatItem(db, r).unit, e.byName]);
     if (e.type === 'endweek') { var st = eatStock(db, e.centre, e.date); for (var k in e.data.q) { var x = st[k], cnt = e.data.q[k]; end.rows.push([e.date, WD[eatWeekday(e.date)], c, eatItem(db, k).name, x ? x.expected : '', cnt == null ? 'Not counted' : cnt, cnt != null && x && x.expected != null ? Math.round((cnt - x.expected) * 100) / 100 : '', eatItem(db, k).unit, e.byName]); } }
   });
-  var stock = { name: 'In the store now', head: ['Centre', 'Item', 'Last count', 'Date of the count', 'Received since', 'Used since', 'Now (expected)', 'Unit'], rows: [] };
+  var stock = { name: 'In the store now', head: ['Centre', 'Item', 'Last count', 'Date of the count', 'Delivered since', 'Used since', 'Now (expected)', 'Unit'], rows: [] };
   db.centres.forEach(function (c) { var st = eatStock(db, c.id, todayStr()); db.items.forEach(function (it) { var s = st[it.id]; if (s) stock.rows.push([c.name, it.name, s.start, s.startDate || '', s.inn, s.used, s.expected, it.unit]); }); });
   var com = { name: 'Comments', head: ['Time', 'Who', 'Screen', 'Comment', 'Done'], rows: (db.comments || []).map(function (c) { return [localTime(c.at), c.byName, c.screen, c.text, c.done ? 'Done' : '']; }) };
   saveFile('CYP-EAT_' + todayStr() + '.xlsx', makeXlsx([people, food, rec, end, stock, com]));
@@ -853,8 +901,8 @@ document.addEventListener('input', function (ev) {
   if (el.hasAttribute('data-f')) S.f[el.getAttribute('data-f')] = el.value;
   if (el.hasAttribute('data-q')) { var k = el.getAttribute('data-q'); if (k === 'kept') S.f.kept = el.value; else S.f.q[k] = el.value; liveUpdate(); }
 });
-window.addEventListener('online', function () { S.online = true; sync(); render(); });
-window.addEventListener('offline', function () { S.online = false; render(); });
+window.addEventListener('online', function () { S.online = true; sync(); bgRender(); });
+window.addEventListener('offline', function () { S.online = false; bgRender(); });
 window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault(); S.installEvt = e; render(); });
 setInterval(function () { if (S.sess && document.visibilityState === 'visible') sync(); }, 30000);
 document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible' && S.sess) sync(); });
