@@ -1,8 +1,10 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.5';
+var EAT_VERSION = 'alpha 0.6';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 var EAT_ROLES = ['Volunteer', 'Canteen', 'Educator'];
+/* three accesses: entry (people and food), delivery (photos of the delivery notes), admin (overview) */
+var EAT_MODES = ['entry', 'delivery', 'admin'];
 var EAT_TYPES = ['people', 'menu', 'before', 'after', 'skip', 'received', 'endweek', 'note', 'startweek', 'dmenu', 'dbefore', 'dafter', 'dskip'];
 /* the food is counted for the whole day: dmenu (all meals at once), dbefore (quantities for today), dafter (left at the end of the day), dskip.
    The old types menu, before, after, skip (one meal) are still read. */
@@ -77,7 +79,7 @@ function eatFrac(t) {
 }
 function eatKey(type, centre, date, meal) { return type + '|' + centre + '|' + date + '|' + (meal || ''); }
 function eatPublicSettings(s) {
-  return { rev: s.rev, entry: s.entry ? { salt: s.entry.salt } : null, admin: s.admin ? { salt: s.admin.salt } : null };
+  return { rev: s.rev, entry: s.entry ? { salt: s.entry.salt } : null, admin: s.admin ? { salt: s.admin.salt } : null, delivery: s.delivery ? { salt: s.delivery.salt } : null };
 }
 
 /* ---------- reading entries ---------- */
@@ -93,6 +95,9 @@ function eatGet(db, type, centre, date, meal) { return eatIndex(db)[eatKey(type,
 function eatItemsOf(db) { return db.items; }
 function eatItem(db, id) { return eatFind(db.items, id); }
 function eatCentre(db, id) { return eatFind(db.centres, id); }
+/* centres with a canteen (people and food are counted); places only receive deliveries */
+function eatCanteens(db) { var o = []; for (var i = 0; i < db.centres.length; i++) if (!db.centres[i].place && !db.centres[i].off) o.push(db.centres[i]); return o; }
+function eatPlaces(db) { var o = []; for (var i = 0; i < db.centres.length; i++) if (!db.centres[i].off) o.push(db.centres[i]); return o; }
 
 /* the food rows of a meal: what the menu says, else the day's plan */
 function eatMenuOf(db, centre, date, meal) {
@@ -286,9 +291,11 @@ function eatApply(db, mode, op, nowIso, info) {
   var k = op.kind, i;
   function bump(o) { db.rev++; o.rev = db.rev; }
   function admin() { return mode === 'admin'; }
+  if (mode === 'delivery' && !(k === 'comment' || (k === 'entry' && op.e && op.e.type === 'note'))) return { ok: false, error: 'rights' };
   if (k === 'entry') {
     var e = op.e || {};
     if (EAT_TYPES.indexOf(e.type) < 0 || !eatCentre(db, e.centre) || !eatIsDate(e.date)) return { ok: false, error: 'fields' };
+    if (e.type !== 'note' && eatCentre(db, e.centre).place) return { ok: false, error: 'place' };
     if (e.date > eatToday(nowIso)) return { ok: false, error: 'future' };
     var meal = e.meal || '';
     if (['people', 'menu', 'before', 'after', 'skip'].indexOf(e.type) >= 0 && EAT_MEALS.indexOf(meal) < 0) return { ok: false, error: 'meal' };
@@ -342,6 +349,21 @@ function eatApply(db, mode, op, nowIso, info) {
     info.audit.push({ time: nowIso, who: 'Overview', action: 'Meals changed', detail: ce.name + ': ' + ms.join(', ') });
     return { ok: true };
   }
+  if (k === 'place_add') {
+    var pn = eatText(op.name, 60); if (!pn) return { ok: false, error: 'fields' };
+    for (i = 0; i < db.centres.length; i++) if (!db.centres[i].off && db.centres[i].name.toLowerCase() === pn.toLowerCase()) return { ok: false, error: 'same' };
+    var pid = 'P' + (db.centres.length + 1); while (eatCentre(db, pid)) pid += 'x';
+    var pl = { id: pid, name: pn, meals: [], left: false, place: true };
+    bump(pl); db.centres.push(pl);
+    info.audit.push({ time: nowIso, who: 'Overview', action: 'Place added', detail: pn });
+    return { ok: true };
+  }
+  if (k === 'place_off') {
+    var po = eatCentre(db, op.cid); if (!po || !po.place) return { ok: false, error: 'id' };
+    po.off = true; bump(po);
+    info.audit.push({ time: nowIso, who: 'Overview', action: 'Place removed', detail: po.name });
+    return { ok: true };
+  }
   if (k === 'centre_left') {
     var cl = eatCentre(db, op.cid); if (!cl) return { ok: false, error: 'id' };
     cl.left = !!op.on; bump(cl);
@@ -356,11 +378,11 @@ function eatApply(db, mode, op, nowIso, info) {
     return { ok: true };
   }
   if (k === 'pin_set') {
-    if (op.which !== 'entry' && op.which !== 'admin') return { ok: false, error: 'fields' };
+    if (EAT_MODES.indexOf(op.which) < 0) return { ok: false, error: 'fields' };
     if (!op.salt || !op.cred) return { ok: false, error: 'fields' };
     db.settings[op.which] = { salt: String(op.salt), cred: String(op.cred) };
     db.settings.rev = ++db.rev;
-    info.audit.push({ time: nowIso, who: 'Overview', action: 'PIN changed', detail: op.which === 'entry' ? 'Data entry PIN' : 'Overview PIN' });
+    info.audit.push({ time: nowIso, who: 'Overview', action: 'PIN changed', detail: op.which === 'entry' ? 'Data entry PIN' : (op.which === 'delivery' ? 'Deliveries PIN' : 'Overview PIN') });
     return { ok: true };
   }
   return { ok: false, error: 'kind' };
@@ -387,7 +409,7 @@ function eatClean(db, type, d) {
   }
   if (type === 'received') return { q: qs(d.q) };
   if (type === 'endweek' || type === 'startweek') return { q: qs(d.q), nc: ncs(d.nc) };
-  if (type === 'note') { var nq = qs(d.q), q2 = {}; for (var k2 in nq) if (k2 !== 'pcs' && nq[k2] != null && nq[k2] > 0) q2[k2] = nq[k2]; var dy = Math.round(Number(d.days)); return { no: eatNoteNo(d.no), q: q2, days: isFinite(dy) && dy >= 1 && dy <= 60 ? dy : null, remark: eatText(d.remark, 200), recv: eatText(d.recv, 60), off: !!d.off }; }
+  if (type === 'note') { var nq = qs(d.q), q2 = {}; for (var k2 in nq) if (k2 !== 'pcs' && nq[k2] != null && nq[k2] > 0) q2[k2] = nq[k2]; var dy = Math.round(Number(d.days)); return { no: eatNoteNo(d.no), q: q2, days: isFinite(dy) && dy >= 1 && dy <= 60 ? dy : null, remark: eatText(d.remark, 200), recv: eatText(d.recv, 60), off: !!d.off, photo: /^[A-Za-z0-9_\-]{10,80}$/.test(String(d.photo || '')) ? String(d.photo) : '' }; }
   return {};
 }
 
@@ -407,8 +429,9 @@ function eatHandle(req, store) {
     store.save(db, { entries: [], comments: [], audit: [{ time: now, who: 'Setup', action: 'PINs set', detail: '' }] });
     return { ok: true };
   }
-  var mode = req.mode === 'admin' ? 'admin' : 'entry';
-  if (!s[mode]) return { ok: false, error: 'empty' };
+  var mode = EAT_MODES.indexOf(req.mode) >= 0 ? req.mode : 'entry';
+  if (!s.fails) s.fails = {}; if (!s.lock) s.lock = {};
+  if (!s[mode]) return { ok: false, error: mode === 'delivery' ? 'no_pin' : 'empty' };
   if (s.lock[mode] && now < s.lock[mode]) return { ok: false, error: 'locked', until: s.lock[mode] };
   if (!req.cred || req.cred !== s[mode].cred) {
     s.fails[mode] = (s.fails[mode] || 0) + 1;
@@ -419,6 +442,19 @@ function eatHandle(req, store) {
   var dirty = upgraded;
   if (s.fails[mode] || s.lock[mode]) { s.fails[mode] = 0; s.lock[mode] = ''; dirty = true; }
   if (a === 'login') { if (dirty) store.save(db, null); return { ok: true, now: now }; }
+  /* the photo of a delivery note: saved on Drive and read by the photo reader; nothing is written in the database here */
+  if (a === 'read') {
+    if (mode === 'entry') return { ok: false, error: 'rights' };
+    if (!store.read || !(store.readerOn && store.readerOn())) return { ok: false, error: 'no_reader' };
+    var img = String(req.image || '');
+    if (!img || img.length > 6000000 || !/^[A-Za-z0-9+\/=]+$/.test(img)) return { ok: false, error: 'image' };
+    try { return store.read(img, db); } catch (err) { return { ok: false, error: 'reader', detail: String(err).slice(0, 200) }; }
+  }
+  if (a === 'reader_key') {
+    if (mode !== 'admin' || !store.setReaderKey) return { ok: false, error: 'rights' };
+    store.setReaderKey(String(req.value || '').trim());
+    return { ok: true, reader: !!(store.readerOn && store.readerOn()) };
+  }
   if (a !== 'sync') return { ok: false, error: 'action' };
   var results = [], info = { entries: [], audit: [], comments: [] }, ops = req.ops || [];
   for (i = 0; i < ops.length; i++) {
@@ -432,7 +468,7 @@ function eatHandle(req, store) {
   }
   if (dirty) store.save(db, info);
   var since = Number(req.since) || 0, out = pub();
-  out.ok = true; out.results = results; out.rev = db.rev; out.now = now; out.full = since === 0;
+  out.ok = true; out.results = results; out.rev = db.rev; out.now = now; out.full = since === 0; out.reader = !!(store.readerOn && store.readerOn());
   out.entries = [];
   for (i = 0; i < db.entries.length; i++) if (db.entries[i].rev > since) out.entries.push(db.entries[i]);
   out.comments = [];
@@ -502,12 +538,12 @@ function details_(db, e) {
   if (e.type === 'after' && (d.kept != null || d.keptNc)) parts.push('Meals kept for later: ' + (d.keptNc ? 'not counted' : d.kept));
   return parts.join('; ');
 }
-var STEP_ = { menu: 'What we eat', before: 'Quantities before', after: 'Quantities after', skip: 'Food not counted', received: 'Food delivered', endweek: 'End of the week', startweek: 'Start of the week', dmenu: 'What we eat today', dbefore: 'Quantities for today', dafter: 'Quantities at the end of the day', dskip: 'Food not counted' };
+var STEP_ = { menu: 'What we eat', before: 'Quantities before', after: 'Quantities after', skip: 'Food not counted', received: 'Food delivered', endweek: 'End of the week', startweek: 'Start of the week', dmenu: 'What we eat today', dbefore: 'Quantities for today', dafter: 'Leftovers', dskip: 'Food not counted' };
 function mirror_(db, list) {
   if (!list.length) return;
   for (var i = 0; i < list.length; i++) {
     var e = list[i], c = eatCentre(db, e.centre), cn = c ? c.name : e.centre;
-    if (e.type === 'note') upsert_(sheet_('deliveries', NOTE_HEAD), NOTE_HEAD, e.key, [Number(e.data.no), e.date, cn, e.data.off ? 'Removed' : safe_(details_(db, e)), safe_(e.data.remark), safe_(e.data.recv), safe_(e.byName), when_(e.saved), e.key]);
+    if (e.type === 'note') upsert_(sheet_('deliveries', NOTE_HEAD), NOTE_HEAD, e.key, [Number(e.data.no), e.date, cn, e.data.off ? 'Removed' : safe_(details_(db, e)), safe_(e.data.remark + (e.data.photo ? (e.data.remark ? ' · ' : '') + 'photo: https://drive.google.com/file/d/' + e.data.photo + '/view' : '')), safe_(e.data.recv), safe_(e.byName), when_(e.saved), e.key]);
     else if (e.type === 'people') upsert_(sheet_('people', PEOPLE_HEAD), PEOPLE_HEAD, e.key, [e.date, cn, e.meal, e.data.n, safe_(e.byName), when_(e.saved), e.key]);
     else if (e.type === 'received' || e.type === 'endweek' || e.type === 'startweek') upsert_(sheet_('stock', STOCK_HEAD), STOCK_HEAD, e.key, [e.date, cn, STEP_[e.type], safe_(details_(db, e)), safe_(e.byName), when_(e.saved), e.key]);
     else upsert_(sheet_('food', FOOD_HEAD), FOOD_HEAD, e.key, [e.date, cn, e.meal || 'Whole day', STEP_[e.type], safe_(details_(db, e)), safe_(e.byName), when_(e.saved), e.key]);
@@ -533,6 +569,9 @@ function store_() {
     key: function () { return P.getProperty('key') || ''; },
     now: function () { return new Date().toISOString(); },
     load: function () { var id = P.getProperty('dbId'); return id ? JSON.parse(DriveApp.getFileById(id).getBlob().getDataAsString('UTF-8')) : null; },
+    readerOn: readerOn_,
+    setReaderKey: function (v) { if (v) props_().setProperty('geminiKey', v); else props_().deleteProperty('geminiKey'); },
+    read: readNote_,
     save: function (db, info) {
       var text = JSON.stringify(db), id = P.getProperty('dbId'), f = folder_();
       if (id) DriveApp.getFileById(id).setContent(text); else P.setProperty('dbId', f.createFile(DB_FILE, text, 'application/json').getId());
@@ -542,13 +581,54 @@ function store_() {
     }
   };
 }
+/* ===== the photo reader: a photo of a delivery note, saved on Drive and read by Gemini =====
+   The key is written from the app (Overview > Settings > Photo reader) and kept in the script properties, never in the database. */
+var PHOTO_DIR = 'CYP EAT delivery photos';
+function photoFolder_() { var f = folder_(), it = f.getFoldersByName(PHOTO_DIR); return it.hasNext() ? it.next() : f.createFolder(PHOTO_DIR); }
+function readerOn_() { return !!props_().getProperty('geminiKey'); }
+function readerPrompt_(db) {
+  var places = eatPlaces(db).map(function (c) { return c.name; }).join('; ');
+  var items = db.items.map(function (it) { return it.id + ' = ' + it.name + ' (in ' + it.unit + ')'; }).join('; ');
+  return 'You read a photo of a paper delivery note of Self Reliance, the farm and butchery of the Pope John XXIII Association in Ndola, Zambia. ' +
+    'The note has a printed red number, a date, the place the food goes to, lines with a quantity and an item, and "received by". ' +
+    'Return only this JSON: {"readable": true or false, "note_number": "the digits of the red number, or empty", "date": "YYYY-MM-DD, or empty", ' +
+    '"place": "the place the food goes to: one of ' + places + ', or the name as written", "items": [{"item": "item id", "quantity": number}], ' +
+    '"received_by": "the name, or empty", "remark": "anything else written, short"}. ' +
+    'Item ids: ' + items + '. Give each quantity in the unit in brackets: mealie meal in bags (packs or bags of mealie meal are bags), eggs in trays, chickens as whole chickens, pork and fish in kg. ' +
+    'Halves and quarters as 0.5 and 0.25. Dates are written day/month/year; the year is 20' + new Date().getFullYear().toString().slice(2) + ' if not written. ' +
+    'If the photo is not a delivery note, or the number or the quantities cannot be read, set "readable" to false.';
+}
+function readNote_(img, db) {
+  var key = props_().getProperty('geminiKey'); if (!key) return { ok: false, error: 'no_reader' };
+  var name = 'delivery-' + Utilities.formatDate(new Date(), 'Africa/Lusaka', 'yyyy-MM-dd_HHmmss') + '.jpg';
+  var file = photoFolder_().createFile(Utilities.newBlob(Utilities.base64Decode(img), 'image/jpeg', name));
+  var body = { contents: [{ parts: [{ text: readerPrompt_(db) }, { inline_data: { mime_type: 'image/jpeg', data: img } }] }], generationConfig: { responseMimeType: 'application/json' } };
+  var models = [props_().getProperty('geminiModel') || 'gemini-flash-latest', 'gemini-flash-lite-latest'], text = '', last = '';
+  for (var i = 0; i < models.length && !text; i++) {
+    var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent', { method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key }, payload: JSON.stringify(body), muteHttpExceptions: true });
+    var code = res.getResponseCode(); last = code + ' ' + res.getContentText().slice(0, 160);
+    if (code === 404) continue;
+    if (code !== 200) return { ok: false, error: code === 400 || code === 403 ? 'reader_key' : 'reader', detail: last, photo: file.getId() };
+    var out = JSON.parse(res.getContentText()), parts = (((out.candidates || [])[0] || {}).content || {}).parts || [];
+    for (var j = 0; j < parts.length; j++) if (parts[j].text) text += parts[j].text;
+  }
+  if (!text) return { ok: false, error: 'reader', detail: last, photo: file.getId() };
+  var r; try { r = JSON.parse(text.replace(/^\s*```(?:json)?/, '').replace(/```\s*$/, '')); } catch (e) { return { ok: false, error: 'reader', detail: 'not json', photo: file.getId() }; }
+  var place = String(r.place || '').toLowerCase().trim(), centre = '';
+  eatPlaces(db).forEach(function (c) { var n = c.name.toLowerCase(); if (!centre && place && (n === place || n.indexOf(place) >= 0 || place.indexOf(n.split(' /')[0]) >= 0)) centre = c.id; });
+  var q = {}; (r.items || []).forEach(function (x) { var it = eatItem(db, String(x.item || '')); var n = eatNum(x.quantity); if (it && n) q[it.id] = (q[it.id] || 0) + n; });
+  return { ok: true, photo: file.getId(), read: { clear: r.readable !== false, no: eatNoteNo(r.note_number), date: eatIsDate(r.date) ? r.date : '', centre: centre, placeText: eatText(r.place, 60), q: q, recv: eatText(r.received_by, 60), remark: eatText(r.remark, 200) } };
+}
+/* Run once from the editor after this update: Google asks Mauro to allow the photo reader (internet calls and the photo folder). */
+function authorize() { UrlFetchApp.fetch('https://generativelanguage.googleapis.com/', { muteHttpExceptions: true }); photoFolder_(); Logger.log('Done: the photo reader is allowed. The key is written in the app: Overview > Settings > Photo reader.'); }
 function reply_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 function doPost(e) {
   var lock = null;
   try {
     var req = JSON.parse(e.postData.contents);
     /* one phone at a time, so two saves never overwrite each other */
-    if (req.action !== 'hello') { lock = LockService.getScriptLock(); lock.waitLock(25000); }
+    /* reading a photo takes several seconds and writes nothing in the database: it does not wait for the others */
+    if (req.action !== 'hello' && req.action !== 'read') { lock = LockService.getScriptLock(); lock.waitLock(25000); }
     return reply_(eatHandle(req, store_()));
   } catch (err) { return reply_({ ok: false, error: 'server', detail: String(err) }); }
   finally { if (lock) { try { lock.releaseLock(); } catch (x) {} } }
