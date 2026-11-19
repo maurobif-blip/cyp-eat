@@ -718,9 +718,7 @@ SCREENS.settings = function () {
     installCard() +
     '<div class="card"><span class="b" style="font-size:18px">PINs</span><button class="btn" data-a="pinChange" data-w="entry">Change the data entry PIN</button><button class="btn" data-a="pinChange" data-w="admin">Change the overview PIN</button></div>' +
     '<div class="card"><span class="b" style="font-size:18px">Link for the people who count</span><button class="btn" data-a="copyLink">Copy the link</button><span class="m s">Send the link and, in another message, the data entry PIN.</span></div>' +
-    '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Comments on the app' + (open ? ' (' + open + ' open)' : '') + '</span>' + ((db.comments || []).length ? db.comments.slice().sort(function (a, b) { return a.at < b.at ? 1 : -1; }).map(function (c) {
-      return '<div class="row" style="flex-direction:column;align-items:stretch;gap:4px"><span class="m s">' + esc(c.byName || '') + ' · ' + esc(c.screen) + ' · ' + esc(localTime(c.at)) + '</span><span' + (c.done ? ' class="m"' : '') + '>' + esc(c.text) + '</span><button class="nc' + (c.done ? ' on' : '') + '" data-a="cdone" data-id="' + esc(c.id) + '" style="align-self:flex-start">' + (c.done ? 'Done · open again' : 'Done') + '</button></div>';
-    }).join('') : '<span class="m">None yet.</span>') + '</div>' +
+    commentsCard(db) +
     '<div class="ver">CYP EAT ' + EAT_VERSION + '</div>';
 };
 
@@ -990,6 +988,27 @@ A.copyLink = function () {
   var done = function () { S.good = 'Link copied.'; S.keepScroll = true; render(); };
   if (navigator.clipboard) navigator.clipboard.writeText(link).then(done, function () { prompt('Copy the link', link); });
   else prompt('Copy the link', link);
+};
+/* the comments still to do: listed and copied; a comment marked done leaves the list (it stays in the database and in the export) */
+function openComments(db) { return (db.comments || []).filter(function (c) { return !c.done; }).sort(function (a, b) { return a.at < b.at ? 1 : -1; }); }
+function commentLine(c) { return (c.byName || '') + ' · ' + c.screen + ' · ' + localTime(c.at); }
+function commentsCard(db) {
+  var open = openComments(db), done = (db.comments || []).length - open.length;
+  var list = (S.showDone ? (db.comments || []).slice().sort(function (a, b) { return a.at < b.at ? 1 : -1; }) : open);
+  return '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Comments on the app' + (open.length ? ' (' + open.length + ' to do)' : '') + '</span>' +
+    (open.length ? '<button class="btn" data-a="copyComments" style="margin-bottom:8px">Copy the ' + plural(open.length, 'comment', 'comments') + ' to do</button>' : '') +
+    (list.length ? list.map(function (c) {
+      return '<div class="row" style="flex-direction:column;align-items:stretch;gap:4px"><span class="m s">' + esc(commentLine(c)) + '</span><span' + (c.done ? ' class="m"' : '') + '>' + esc(c.text) + '</span><button class="nc' + (c.done ? ' on' : '') + '" data-a="cdone" data-id="' + esc(c.id) + '" style="align-self:flex-start">' + (c.done ? 'Done · open again' : 'Done') + '</button></div>';
+    }).join('') : '<span class="m">' + (done ? 'Nothing to do.' : 'None yet.') + '</span>') +
+    (done ? '<button class="btn link" data-a="showDone">' + (S.showDone ? 'Hide the done comments' : 'Show the ' + done + ' done') + '</button>' : '') + '</div>';
+}
+A.showDone = function () { S.showDone = !S.showDone; S.keepScroll = true; render(); };
+A.copyComments = function () {
+  var open = openComments(view());
+  var text = 'CYP EAT: comments to do (' + open.length + '), ' + localTime(nowIso()) + '\n\n' + open.map(function (c, i) { return (i + 1) + '. ' + commentLine(c) + '\n' + c.text; }).join('\n\n');
+  var done = function () { S.good = plural(open.length, 'comment', 'comments') + ' copied.'; S.keepScroll = true; render(); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, function () { prompt('Copy the comments', text); });
+  else prompt('Copy the comments', text);
 };
 A.cdone = function (el) { var c = eatFind(view().comments, el.getAttribute('data-id')); queue({ kind: 'comment_done', cid: c.id, done: !c.done }); S.keepScroll = true; render(); };
 A.comment = function () { S.f.ct = ''; openModal(commentModal); };
