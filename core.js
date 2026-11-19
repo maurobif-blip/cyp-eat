@@ -1,8 +1,10 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.5';
+var EAT_VERSION = 'alpha 0.6';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 var EAT_ROLES = ['Volunteer', 'Canteen', 'Educator'];
+/* three accesses: entry (people and food), delivery (photos of the delivery notes), admin (overview) */
+var EAT_MODES = ['entry', 'delivery', 'admin'];
 var EAT_TYPES = ['people', 'menu', 'before', 'after', 'skip', 'received', 'endweek', 'note', 'startweek', 'dmenu', 'dbefore', 'dafter', 'dskip'];
 /* the food is counted for the whole day: dmenu (all meals at once), dbefore (quantities for today), dafter (left at the end of the day), dskip.
    The old types menu, before, after, skip (one meal) are still read. */
@@ -77,7 +79,7 @@ function eatFrac(t) {
 }
 function eatKey(type, centre, date, meal) { return type + '|' + centre + '|' + date + '|' + (meal || ''); }
 function eatPublicSettings(s) {
-  return { rev: s.rev, entry: s.entry ? { salt: s.entry.salt } : null, admin: s.admin ? { salt: s.admin.salt } : null };
+  return { rev: s.rev, entry: s.entry ? { salt: s.entry.salt } : null, admin: s.admin ? { salt: s.admin.salt } : null, delivery: s.delivery ? { salt: s.delivery.salt } : null };
 }
 
 /* ---------- reading entries ---------- */
@@ -93,6 +95,9 @@ function eatGet(db, type, centre, date, meal) { return eatIndex(db)[eatKey(type,
 function eatItemsOf(db) { return db.items; }
 function eatItem(db, id) { return eatFind(db.items, id); }
 function eatCentre(db, id) { return eatFind(db.centres, id); }
+/* centres with a canteen (people and food are counted); places only receive deliveries */
+function eatCanteens(db) { var o = []; for (var i = 0; i < db.centres.length; i++) if (!db.centres[i].place && !db.centres[i].off) o.push(db.centres[i]); return o; }
+function eatPlaces(db) { var o = []; for (var i = 0; i < db.centres.length; i++) if (!db.centres[i].off) o.push(db.centres[i]); return o; }
 
 /* the food rows of a meal: what the menu says, else the day's plan */
 function eatMenuOf(db, centre, date, meal) {
@@ -286,9 +291,11 @@ function eatApply(db, mode, op, nowIso, info) {
   var k = op.kind, i;
   function bump(o) { db.rev++; o.rev = db.rev; }
   function admin() { return mode === 'admin'; }
+  if (mode === 'delivery' && !(k === 'comment' || (k === 'entry' && op.e && op.e.type === 'note'))) return { ok: false, error: 'rights' };
   if (k === 'entry') {
     var e = op.e || {};
     if (EAT_TYPES.indexOf(e.type) < 0 || !eatCentre(db, e.centre) || !eatIsDate(e.date)) return { ok: false, error: 'fields' };
+    if (e.type !== 'note' && eatCentre(db, e.centre).place) return { ok: false, error: 'place' };
     if (e.date > eatToday(nowIso)) return { ok: false, error: 'future' };
     var meal = e.meal || '';
     if (['people', 'menu', 'before', 'after', 'skip'].indexOf(e.type) >= 0 && EAT_MEALS.indexOf(meal) < 0) return { ok: false, error: 'meal' };
@@ -342,6 +349,21 @@ function eatApply(db, mode, op, nowIso, info) {
     info.audit.push({ time: nowIso, who: 'Overview', action: 'Meals changed', detail: ce.name + ': ' + ms.join(', ') });
     return { ok: true };
   }
+  if (k === 'place_add') {
+    var pn = eatText(op.name, 60); if (!pn) return { ok: false, error: 'fields' };
+    for (i = 0; i < db.centres.length; i++) if (!db.centres[i].off && db.centres[i].name.toLowerCase() === pn.toLowerCase()) return { ok: false, error: 'same' };
+    var pid = 'P' + (db.centres.length + 1); while (eatCentre(db, pid)) pid += 'x';
+    var pl = { id: pid, name: pn, meals: [], left: false, place: true };
+    bump(pl); db.centres.push(pl);
+    info.audit.push({ time: nowIso, who: 'Overview', action: 'Place added', detail: pn });
+    return { ok: true };
+  }
+  if (k === 'place_off') {
+    var po = eatCentre(db, op.cid); if (!po || !po.place) return { ok: false, error: 'id' };
+    po.off = true; bump(po);
+    info.audit.push({ time: nowIso, who: 'Overview', action: 'Place removed', detail: po.name });
+    return { ok: true };
+  }
   if (k === 'centre_left') {
     var cl = eatCentre(db, op.cid); if (!cl) return { ok: false, error: 'id' };
     cl.left = !!op.on; bump(cl);
@@ -356,11 +378,11 @@ function eatApply(db, mode, op, nowIso, info) {
     return { ok: true };
   }
   if (k === 'pin_set') {
-    if (op.which !== 'entry' && op.which !== 'admin') return { ok: false, error: 'fields' };
+    if (EAT_MODES.indexOf(op.which) < 0) return { ok: false, error: 'fields' };
     if (!op.salt || !op.cred) return { ok: false, error: 'fields' };
     db.settings[op.which] = { salt: String(op.salt), cred: String(op.cred) };
     db.settings.rev = ++db.rev;
-    info.audit.push({ time: nowIso, who: 'Overview', action: 'PIN changed', detail: op.which === 'entry' ? 'Data entry PIN' : 'Overview PIN' });
+    info.audit.push({ time: nowIso, who: 'Overview', action: 'PIN changed', detail: op.which === 'entry' ? 'Data entry PIN' : (op.which === 'delivery' ? 'Deliveries PIN' : 'Overview PIN') });
     return { ok: true };
   }
   return { ok: false, error: 'kind' };
@@ -387,7 +409,7 @@ function eatClean(db, type, d) {
   }
   if (type === 'received') return { q: qs(d.q) };
   if (type === 'endweek' || type === 'startweek') return { q: qs(d.q), nc: ncs(d.nc) };
-  if (type === 'note') { var nq = qs(d.q), q2 = {}; for (var k2 in nq) if (k2 !== 'pcs' && nq[k2] != null && nq[k2] > 0) q2[k2] = nq[k2]; var dy = Math.round(Number(d.days)); return { no: eatNoteNo(d.no), q: q2, days: isFinite(dy) && dy >= 1 && dy <= 60 ? dy : null, remark: eatText(d.remark, 200), recv: eatText(d.recv, 60), off: !!d.off }; }
+  if (type === 'note') { var nq = qs(d.q), q2 = {}; for (var k2 in nq) if (k2 !== 'pcs' && nq[k2] != null && nq[k2] > 0) q2[k2] = nq[k2]; var dy = Math.round(Number(d.days)); return { no: eatNoteNo(d.no), q: q2, days: isFinite(dy) && dy >= 1 && dy <= 60 ? dy : null, remark: eatText(d.remark, 200), recv: eatText(d.recv, 60), off: !!d.off, photo: /^[A-Za-z0-9_\-]{10,80}$/.test(String(d.photo || '')) ? String(d.photo) : '' }; }
   return {};
 }
 
@@ -407,8 +429,9 @@ function eatHandle(req, store) {
     store.save(db, { entries: [], comments: [], audit: [{ time: now, who: 'Setup', action: 'PINs set', detail: '' }] });
     return { ok: true };
   }
-  var mode = req.mode === 'admin' ? 'admin' : 'entry';
-  if (!s[mode]) return { ok: false, error: 'empty' };
+  var mode = EAT_MODES.indexOf(req.mode) >= 0 ? req.mode : 'entry';
+  if (!s.fails) s.fails = {}; if (!s.lock) s.lock = {};
+  if (!s[mode]) return { ok: false, error: mode === 'delivery' ? 'no_pin' : 'empty' };
   if (s.lock[mode] && now < s.lock[mode]) return { ok: false, error: 'locked', until: s.lock[mode] };
   if (!req.cred || req.cred !== s[mode].cred) {
     s.fails[mode] = (s.fails[mode] || 0) + 1;
@@ -419,6 +442,19 @@ function eatHandle(req, store) {
   var dirty = upgraded;
   if (s.fails[mode] || s.lock[mode]) { s.fails[mode] = 0; s.lock[mode] = ''; dirty = true; }
   if (a === 'login') { if (dirty) store.save(db, null); return { ok: true, now: now }; }
+  /* the photo of a delivery note: saved on Drive and read by the photo reader; nothing is written in the database here */
+  if (a === 'read') {
+    if (mode === 'entry') return { ok: false, error: 'rights' };
+    if (!store.read || !(store.readerOn && store.readerOn())) return { ok: false, error: 'no_reader' };
+    var img = String(req.image || '');
+    if (!img || img.length > 6000000 || !/^[A-Za-z0-9+\/=]+$/.test(img)) return { ok: false, error: 'image' };
+    try { return store.read(img, db); } catch (err) { return { ok: false, error: 'reader', detail: String(err).slice(0, 200) }; }
+  }
+  if (a === 'reader_key') {
+    if (mode !== 'admin' || !store.setReaderKey) return { ok: false, error: 'rights' };
+    store.setReaderKey(String(req.value || '').trim());
+    return { ok: true, reader: !!(store.readerOn && store.readerOn()) };
+  }
   if (a !== 'sync') return { ok: false, error: 'action' };
   var results = [], info = { entries: [], audit: [], comments: [] }, ops = req.ops || [];
   for (i = 0; i < ops.length; i++) {
@@ -432,11 +468,11 @@ function eatHandle(req, store) {
   }
   if (dirty) store.save(db, info);
   var since = Number(req.since) || 0, out = pub();
-  out.ok = true; out.results = results; out.rev = db.rev; out.now = now; out.full = since === 0;
+  out.ok = true; out.results = results; out.rev = db.rev; out.now = now; out.full = since === 0; out.reader = !!(store.readerOn && store.readerOn());
   out.entries = [];
   for (i = 0; i < db.entries.length; i++) if (db.entries[i].rev > since) out.entries.push(db.entries[i]);
   out.comments = [];
   for (i = 0; i < db.comments.length; i++) if (db.comments[i].rev > since && (mode === 'admin')) out.comments.push(db.comments[i]);
   return out;
 }
-if (typeof module !== 'undefined') module.exports = { eatNewDb: eatNewDb, eatApply: eatApply, eatHandle: eatHandle, eatMealUse: eatMealUse, eatNote: eatNote, eatNotes: eatNotes, eatNoteGaps: eatNoteGaps, eatNoteNo: eatNoteNo, eatUpgrade: eatUpgrade, eatConv: eatConv, eatStock: eatStock, eatDayUse: eatDayUse, eatDayMenu: eatDayMenu, eatDayRows: eatDayRows, eatUsesOfDay: eatUsesOfDay, eatNum: eatNum, eatLeft: eatLeft, eatWeekCount: eatWeekCount, eatNoteUntil: eatNoteUntil, eatPerPlate: eatPerPlate, eatRows: eatRows, eatMenuOf: eatMenuOf, eatGet: eatGet, eatKey: eatKey, eatMonday: eatMonday, eatAddDays: eatAddDays, eatToday: eatToday, eatWeekday: eatWeekday, EAT_VERSION: EAT_VERSION };
+if (typeof module !== 'undefined') module.exports = { eatNewDb: eatNewDb, eatApply: eatApply, eatHandle: eatHandle, eatMealUse: eatMealUse, eatNote: eatNote, eatNotes: eatNotes, eatNoteGaps: eatNoteGaps, eatNoteNo: eatNoteNo, eatUpgrade: eatUpgrade, eatConv: eatConv, eatStock: eatStock, eatCanteens: eatCanteens, eatPlaces: eatPlaces, eatDayUse: eatDayUse, eatDayMenu: eatDayMenu, eatDayRows: eatDayRows, eatUsesOfDay: eatUsesOfDay, eatNum: eatNum, eatLeft: eatLeft, eatWeekCount: eatWeekCount, eatNoteUntil: eatNoteUntil, eatPerPlate: eatPerPlate, eatRows: eatRows, eatMenuOf: eatMenuOf, eatGet: eatGet, eatKey: eatKey, eatMonday: eatMonday, eatAddDays: eatAddDays, eatToday: eatToday, eatWeekday: eatWeekday, EAT_VERSION: EAT_VERSION };
