@@ -1,9 +1,9 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.2';
+var EAT_VERSION = 'alpha 0.3';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 var EAT_ROLES = ['Volunteer', 'Canteen', 'Educator'];
-var EAT_TYPES = ['people', 'menu', 'before', 'after', 'skip', 'received', 'endweek'];
+var EAT_TYPES = ['people', 'menu', 'before', 'after', 'skip', 'received', 'endweek', 'note'];
 /* protein of the day on the weekly canteen sheet: Sun..Sat */
 var EAT_PLAN = ['chk', 'egg', 'chk', 'egg', 'fsh', 'bea', 'egg'];
 
@@ -147,7 +147,7 @@ function eatStock(db, centre, upTo) {
   for (i = 0; i < db.entries.length; i++) {
     e = db.entries[i];
     if (e.del || e.centre !== centre || e.date <= from || e.date > upTo) continue;
-    if (e.type === 'received') for (var id in e.data.q) if (out[id] && e.data.q[id] != null) out[id].inn += e.data.q[id];
+    if (e.type === 'received' || (e.type === 'note' && !e.data.off)) for (var id in e.data.q) if (out[id] && e.data.q[id] != null) out[id].inn += e.data.q[id];
   }
   var c = eatCentre(db, centre), meals = c ? c.meals : EAT_MEALS, d = from ? eatAddDays(from, 1) : null;
   /* without a count, the stock starts at the first entry of the centre */
@@ -170,6 +170,28 @@ function eatStock(db, centre, upTo) {
   return out;
 }
 
+/* ---------- delivery notes (from the Self Reliance books) ---------- */
+function eatNoteNo(x) { var t = String(x == null ? '' : x).replace(/\D/g, ''); return t.length >= 1 && t.length <= 8 ? String(Number(t)) : ''; }
+function eatNote(db, no) { no = eatNoteNo(no); return no ? eatIndex(db)['note|' + no] || null : null; }
+/* notes with a date from..to (both included), not removed, by date then number */
+function eatNotes(db, from, to, centre) {
+  var out = [];
+  for (var i = 0; i < db.entries.length; i++) {
+    var e = db.entries[i];
+    if (e.del || e.type !== 'note' || e.data.off || e.date < from || e.date > to || (centre && e.centre !== centre)) continue;
+    out.push(e);
+  }
+  return out.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : Number(a.data.no) - Number(b.data.no); });
+}
+/* numbers missing in each book: numbers close to each other (less than 50 apart) are one book */
+function eatNoteGaps(db) {
+  var nos = [], i, gaps = [];
+  for (i = 0; i < db.entries.length; i++) { var e = db.entries[i]; if (!e.del && e.type === 'note' && nos.indexOf(Number(e.data.no)) < 0) nos.push(Number(e.data.no)); }
+  nos.sort(function (a, b) { return a - b; });
+  for (i = 1; i < nos.length; i++) { var d = nos[i] - nos[i - 1]; if (d > 1 && d < 50) gaps.push({ from: nos[i - 1] + 1, to: nos[i] - 1 }); }
+  return gaps;
+}
+
 /* ---------- writing: one function for the server and the phone ---------- */
 /* mode: 'entry' (people who count) or 'admin' (overview). Returns {ok, error}. */
 function eatApply(db, mode, op, nowIso, info) {
@@ -183,8 +205,11 @@ function eatApply(db, mode, op, nowIso, info) {
     if (e.date > eatToday(nowIso)) return { ok: false, error: 'future' };
     var meal = e.meal || '';
     if (['people', 'menu', 'before', 'after', 'skip'].indexOf(e.type) >= 0 && EAT_MEALS.indexOf(meal) < 0) return { ok: false, error: 'meal' };
-    if (['received', 'endweek'].indexOf(e.type) >= 0) meal = '';
-    var key = eatKey(e.type, e.centre, e.date, meal), old = eatIndex(db)[key] || null;
+    if (['received', 'endweek', 'note'].indexOf(e.type) >= 0) meal = '';
+    var key = eatKey(e.type, e.centre, e.date, meal);
+    /* a delivery note is one paper note: its number is the key, whatever the centre or the date */
+    if (e.type === 'note') { var no = eatNoteNo((e.data || {}).no); if (!no) return { ok: false, error: 'note_no' }; key = 'note|' + no; }
+    var old = eatIndex(db)[key] || null;
     /* two phones on the same meal: the later save stays */
     if (old && old.at && e.at && old.at > e.at) return { ok: true, older: true };
     var rec = { id: String(op.id), key: key, type: e.type, centre: e.centre, date: e.date, meal: meal, data: eatClean(db, e.type, e.data || {}), by: eatText(e.by, 40), byName: eatText(e.byName, 60), at: eatText(e.at, 30) || nowIso, saved: nowIso, mode: mode };
@@ -258,6 +283,7 @@ function eatClean(db, type, d) {
   if (type === 'skip') return { on: !!d.on };
   if (type === 'received') return { q: qs(d.q) };
   if (type === 'endweek') return { q: qs(d.q), nc: ncs(d.nc) };
+  if (type === 'note') { var nq = qs(d.q), q2 = {}; for (var k2 in nq) if (k2 !== 'pcs' && nq[k2] != null && nq[k2] > 0) q2[k2] = nq[k2]; return { no: eatNoteNo(d.no), q: q2, remark: eatText(d.remark, 200), recv: eatText(d.recv, 60), off: !!d.off }; }
   return {};
 }
 
@@ -319,6 +345,7 @@ var DB_FILE = 'cyp-eat-database.json';
 var PEOPLE_HEAD = ['Date', 'Centre', 'Meal', 'Plates', 'Counted by', 'Saved', 'Key'];
 var FOOD_HEAD = ['Date', 'Centre', 'Meal', 'Step', 'Details', 'By', 'Saved', 'Key'];
 var STOCK_HEAD = ['Date', 'Centre', 'What', 'Details', 'By', 'Saved', 'Key'];
+var NOTE_HEAD = ['Note no.', 'Date', 'Centre', 'Items', 'Remark', 'Received by', 'Copied by', 'Saved', 'Key'];
 var LOG_HEAD = ['Time', 'Who', 'Action', 'Detail'];
 var COM_HEAD = ['Time', 'Who', 'Centre', 'Screen', 'Comment', 'Version', 'Done', 'Id'];
 var BOOK_ = null;
@@ -353,7 +380,7 @@ function details_(db, e) {
   for (id in q) {
     if (id === 'pcs') { parts.push('Chicken pieces ' + (nc.pcs ? 'not counted' : q[id])); continue; }
     it = eatItem(db, id); if (!it) continue;
-    var unit = e.type === 'received' || e.type === 'endweek' || (d.u && d.u[id] === 'unit') ? it.unit : it.use;
+    var unit = e.type === 'received' || e.type === 'endweek' || e.type === 'note' || (d.u && d.u[id] === 'unit') ? it.unit : it.use;
     parts.push(it.name + ' ' + (nc[id] || q[id] == null ? 'not counted' : q[id] + ' ' + unit));
   }
   if (e.type === 'after' && (d.kept != null || d.keptNc)) parts.push('Meals kept for later: ' + (d.keptNc ? 'not counted' : d.kept));
@@ -364,7 +391,8 @@ function mirror_(db, list) {
   if (!list.length) return;
   for (var i = 0; i < list.length; i++) {
     var e = list[i], c = eatCentre(db, e.centre), cn = c ? c.name : e.centre;
-    if (e.type === 'people') upsert_(sheet_('people', PEOPLE_HEAD), PEOPLE_HEAD, e.key, [e.date, cn, e.meal, e.data.n, safe_(e.byName), when_(e.saved), e.key]);
+    if (e.type === 'note') upsert_(sheet_('deliveries', NOTE_HEAD), NOTE_HEAD, e.key, [Number(e.data.no), e.date, cn, e.data.off ? 'Removed' : safe_(details_(db, e)), safe_(e.data.remark), safe_(e.data.recv), safe_(e.byName), when_(e.saved), e.key]);
+    else if (e.type === 'people') upsert_(sheet_('people', PEOPLE_HEAD), PEOPLE_HEAD, e.key, [e.date, cn, e.meal, e.data.n, safe_(e.byName), when_(e.saved), e.key]);
     else if (e.type === 'received' || e.type === 'endweek') upsert_(sheet_('stock', STOCK_HEAD), STOCK_HEAD, e.key, [e.date, cn, STEP_[e.type], safe_(details_(db, e)), safe_(e.byName), when_(e.saved), e.key]);
     else upsert_(sheet_('food', FOOD_HEAD), FOOD_HEAD, e.key, [e.date, cn, e.meal, STEP_[e.type], safe_(details_(db, e)), safe_(e.byName), when_(e.saved), e.key]);
   }
@@ -412,7 +440,7 @@ function doPost(e) {
 function doGet(e) { return ContentService.createTextOutput('CYP EAT shared database'); }
 /* Run once from the editor: prepares the sheets and the key. */
 function setup() {
-  sheet_('people', PEOPLE_HEAD); sheet_('food', FOOD_HEAD); sheet_('stock', STOCK_HEAD); sheet_('log', LOG_HEAD); sheet_('comments', COM_HEAD);
+  sheet_('people', PEOPLE_HEAD); sheet_('food', FOOD_HEAD); sheet_('stock', STOCK_HEAD); sheet_('deliveries', NOTE_HEAD); sheet_('log', LOG_HEAD); sheet_('comments', COM_HEAD);
   if (!props_().getProperty('key')) props_().setProperty('key', (Utilities.getUuid() + Utilities.getUuid()).replace(/-/g, ''));
   Logger.log('Ready. Now: Deploy > New deployment > Web app > Execute as: Me > Who has access: Anyone. Then write the web app URL in WEB_APP_URL and run the function "link".');
 }
