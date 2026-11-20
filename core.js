@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.8';
+var EAT_VERSION = 'alpha 0.9';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 var EAT_ROLES = ['Volunteer', 'Canteen', 'Educator'];
 /* three accesses: entry (people and food), delivery (photos of the delivery notes), admin (overview) */
@@ -153,7 +153,7 @@ function eatMealUse(db, centre, date, meal) {
 function eatLeft(db, centre) { var c = eatCentre(db, centre); return !!(c && c.left); }
 /* the menu of the day: what is saved, else the weekly plan for each meal of the centre */
 function eatDayMenu(db, centre, date) {
-  var e = eatGet(db, 'dmenu', centre, date, ''), c = eatCentre(db, centre), meals = c ? c.meals : ['Lunch'], out = { saved: !!e, meals: {} };
+  var e = eatGet(db, 'dmenu', centre, date, ''), c = eatCentre(db, centre), meals = c ? c.meals : ['Lunch'], out = { saved: !!e, meals: {}, cook: e && e.data.cook ? e.data.cook : '' };
   for (var i = 0; i < meals.length; i++) {
     var m = meals[i], x = e && e.data.meals ? e.data.meals[m] : null;
     if (m === 'Breakfast') out.meals[m] = x ? { mm: !!x.mm, other: x.other || '' } : { mm: true, other: '' };
@@ -418,7 +418,7 @@ function eatClean(db, type, d) {
       var rr = []; for (var ri = 0; ri < (x.relish || []).length; ri++) { var ri2 = eatItem(db, x.relish[ri]); if (ri2 && ri2.relish && rr.indexOf(ri2.id) < 0) rr.push(ri2.id); }
       ms[mk] = { mm: !!x.mm, relish: rr, veg: eatText(x.veg, 60) };
     }
-    return { meals: ms };
+    return { meals: ms, cook: eatText(d.cook, 60) };
   }
   if (type === 'received') return { q: qs(d.q) };
   if (type === 'endweek' || type === 'startweek') return { q: qs(d.q), nc: ncs(d.nc) };

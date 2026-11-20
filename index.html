@@ -294,13 +294,28 @@ function noticeHtml() {
   if (S.good) out += '<div class="box ok" role="status">' + esc(S.good) + '</div>';
   return out;
 }
+/* data entry: People and Daily wait until the day is chosen (comment of 20/11: the phone may show a wrong day without internet) */
+var DAYSCR = ['people', 'today', 'menu', 'before', 'after'];
+function needDay() { return S.sess && S.sess.mode === 'entry' && !S.dayOk && DAYSCR.indexOf(S.scr) >= 0; }
+function dayPickScreen() {
+  var t = todayStr();
+  return '<h1>Which day are you counting?</h1>' + (S.online ? '' : '<div class="box em">No internet: check that the day is right.</div>') +
+    [0, -1, -2].map(function (k) { var d = eatAddDays(t, k); return '<button class="btn big" data-a="pickDay" data-d="' + d + '" style="justify-content:space-between">' + (k === 0 ? 'Today' : (k === -1 ? 'Yesterday' : 'The day before')) + '<span class="b">' + dayName(d) + '</span></button>'; }).join('') +
+    '<div class="card"><label for="pd" class="lab">Another day</label><input id="pd" class="in" type="date" max="' + t + '" data-f="pd" value="' + esc(S.f.pd || '') + '"><button class="btn" data-a="pickDay" data-d="">Choose this day</button></div>';
+};
+function pickDayAct(el) {
+  var d = el.getAttribute('data-d') || (S.f.pd || '');
+  if (!eatIsDate(d) || d > todayStr()) { S.notice = 'Choose a day, not after today.'; return render(); }
+  S.dayOk = true; S.dayAt = Date.now(); S.date = d; S.week = eatMonday(d); fixMeal(); S.notice = ''; enter(S.scr); render();
+};
 function render() {
   var app = document.getElementById('app'), h = '';
   var scr = S.scr;
-  var fn = SCREENS[scr] || SCREENS.signin;
+  var fn = needDay() ? dayPickScreen : (SCREENS[scr] || SCREENS.signin);
   var body = fn();
   h = topBar() + '<main>' + noticeHtml() + body + '</main>';
   if (S.sess && NAV[scr]) h += navBar(NAV[scr]);
+  if (needDay()) scr = 'daypick';
   var y = window.scrollY, same = S.shown === scr;
   app.innerHTML = h;
   /* a new screen starts at the top; the same screen stays where the person is */
@@ -324,7 +339,7 @@ function drawModal() {
 function openModal(fn) { S.modal = fn; drawModal(); }
 function closeModal() { S.modal = null; drawModal(); if (S.waiting) render(); }
 var NAV = { today: 'today', people: 'people', menu: 'today', before: 'today', after: 'today', week: 'week', startweek: 'week', endweek: 'week', deliveries: 'week', note: 'week', overview: 'overview', settings: 'settings' };
-function go(scr) { peopleFlush(); S.scr = scr; S.f = {}; S.msg = ''; S.notice = ''; S.good = ''; enter(scr); render(); }
+function go(scr) { peopleFlush(); if (scr === 'settings') S.setSec = ''; S.scr = scr; S.f = {}; S.msg = ''; S.notice = ''; S.good = ''; enter(scr); render(); }
 
 /* ---------- first steps ---------- */
 /* ---------- putting the app on the phone or computer ---------- */
@@ -385,12 +400,12 @@ SCREENS.nolink = function () {
 };
 SCREENS.setup = function () {
   return '<h1>First use: the two PINs</h1>' +
-    '<div class="card"><span class="lab">Data entry PIN</span><span class="m s">For everyone who counts. 4 to 8 numbers.</span>' +
-    '<label class="lab" for="p1">PIN</label><input id="p1" class="in" inputmode="numeric" type="password" autocomplete="off" data-f="p1" value="' + esc(S.f.p1 || '') + '">' +
-    '<label class="lab" for="p2">PIN again</label><input id="p2" class="in" inputmode="numeric" type="password" autocomplete="off" data-f="p2" value="' + esc(S.f.p2 || '') + '"></div>' +
-    '<div class="card"><span class="lab">Overview PIN</span><span class="m s">For who sees all the centres and changes the settings.</span>' +
-    '<label class="lab" for="p3">PIN</label><input id="p3" class="in" inputmode="numeric" type="password" autocomplete="off" data-f="p3" value="' + esc(S.f.p3 || '') + '">' +
-    '<label class="lab" for="p4">PIN again</label><input id="p4" class="in" inputmode="numeric" type="password" autocomplete="off" data-f="p4" value="' + esc(S.f.p4 || '') + '"></div>' +
+    '<div class="card"><span class="lab">Data entry PIN</span><span class="m s">For everyone who counts. 4 numbers.</span>' +
+    '<label class="lab" for="p1">PIN</label><input id="p1" class="in" inputmode="numeric" type="password" maxlength="4" autocomplete="off" data-f="p1" value="' + esc(S.f.p1 || '') + '">' +
+    '<label class="lab" for="p2">PIN again</label><input id="p2" class="in" inputmode="numeric" type="password" maxlength="4" autocomplete="off" data-f="p2" value="' + esc(S.f.p2 || '') + '"></div>' +
+    '<div class="card"><span class="lab">Overview PIN</span><span class="m s">For who sees all the centres and changes the settings. 4 numbers.</span>' +
+    '<label class="lab" for="p3">PIN</label><input id="p3" class="in" inputmode="numeric" type="password" maxlength="4" autocomplete="off" data-f="p3" value="' + esc(S.f.p3 || '') + '">' +
+    '<label class="lab" for="p4">PIN again</label><input id="p4" class="in" inputmode="numeric" type="password" maxlength="4" autocomplete="off" data-f="p4" value="' + esc(S.f.p4 || '') + '"></div>' +
     (S.msg ? '<div class="box em">' + esc(S.msg) + '</div>' : '') +
     '<button class="btn pri big" data-a="setupSave"' + (S.busy ? ' disabled' : '') + '>Save the PINs</button>';
 };
@@ -403,7 +418,7 @@ SCREENS.signin = function () {
     '<div class="ver">CYP EAT ' + EAT_VERSION + '</div>';
 };
 SCREENS.pin = function () {
-  var dots = ''; for (var i = 0; i < Math.max(4, S.pin.length); i++) dots += '<span class="' + (i < S.pin.length ? 'f' : '') + '"></span>';
+  var dots = ''; for (var i = 0; i < 4; i++) dots += '<span class="' + (i < S.pin.length ? 'f' : '') + '"></span>';
   var keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok'].map(function (k) {
     if (k === 'del') return '<button class="btn" data-a="key" data-k="del" style="font-size:16px">Delete</button>';
     if (k === 'ok') return '<button class="btn pri" data-a="key" data-k="ok" style="font-size:18px"' + (S.pin.length < 4 || S.busy ? ' disabled' : '') + '>OK</button>';
@@ -497,7 +512,7 @@ SCREENS.today = function () {
   var out = dayBar() + '<span class="m b">' + esc(centreName(c)) + '</span>';
   if (sk && sk.data.on) out += '<div class="box em">Food not counted on ' + dayName(d) + '. People are counted.</div><button class="btn" data-a="skip" data-on="0">Undo</button>';
   else out += '<div style="display:flex;flex-direction:column;gap:8px">' +
-    stepBtn('1', 'What do we eat today?', esc(dayMenuText(db, dm)) + (dm.saved ? '' : ' (plan)'), 'menu', dm.saved ? 'ok' : 'em') +
+    stepBtn('1', 'What do we eat today?', esc(dayMenuText(db, dm)) + (dm.saved ? '' : ' (plan)') + (dm.cook ? ' · Cook: ' + esc(dm.cook) : ''), 'menu', dm.saved ? 'ok' : 'em') +
     stepBtn('2', 'Quantities for today', b ? esc(qtyLine(db, b.data.q, b.data.u)) : 'Food taken out of the store for the meals of today', 'before', b ? 'ok' : (dm.saved ? 'em' : 'off')) +
     (left ? stepBtn('3', 'Leftovers', a ? 'Saved' : 'What is left at the end of the day', 'after', a ? 'ok' : (b ? 'em' : 'off')) : '') +
     '</div><button class="btn" data-a="skip" data-on="1">I didn\'t count the food</button>';
@@ -535,7 +550,11 @@ function weekLink() { return '<button class="btn link" data-a="go" data-to="week
 function dayTitle() { return '<div class="sec">' + dayName(S.date) + ' · ' + esc(centreName(S.sess.centre)) + '</div>'; }
 SCREENS.menu = function () {
   var db = view(), f = S.f, relish = db.items.filter(function (it) { return it.relish; }), plan = eatItem(db, EAT_PLAN[eatWeekday(S.date)]);
-  return backLink() + '<h1>What do we eat today?</h1>' + dayTitle() + centreMeals().map(function (m) {
+  var cooks = (db.names || []).filter(function (n) { return n.active && n.role === 'Canteen'; }).map(function (n) { return n.name; }).sort();
+  var cookCard = '<div class="card"><span class="b" style="font-size:18px">Cook</span>' +
+    (cooks.length ? '<div class="chips">' + cooks.map(function (n) { var on = f.cook === n; return '<button class="btn' + (on ? ' on' : '') + '" data-a="cook" data-n="' + esc(n) + '" aria-pressed="' + on + '">' + esc(n) + '</button>'; }).join('') + '</div>' : '') +
+    '<label for="ck" class="lab">' + (cooks.length ? 'Or write the name' : 'Name of the cook') + '</label><input id="ck" class="in" type="text" data-f="cook" value="' + esc(f.cook || '') + '"></div>';
+  return backLink() + '<h1>What do we eat today?</h1>' + dayTitle() + cookCard + centreMeals().map(function (m) {
     var x = f.meals[m];
     if (m === 'Breakfast') return '<div class="card"><span class="b" style="font-size:18px">Breakfast</span><div class="seg" style="grid-template-columns:repeat(2,minmax(0,1fr))">' +
       '<button class="btn' + (x.mm ? ' on' : '') + '" data-a="bfm" data-v="mm" aria-pressed="' + !!x.mm + '">Porridge</button>' +
@@ -679,16 +698,16 @@ SCREENS.week = function () {
 };
 
 /* ---------- deliveries: the person who brings the food takes a photo of each delivery note ---------- */
-/* the photo made smaller on the phone, so it travels on a slow network: JPEG, 1600 pixels at most */
+/* the photo made smaller on the phone, so it travels on a slow network: JPEG, 1400 pixels at most (about 150-250 KB) */
 function shrinkPhoto(file, cb) {
   var rd = new FileReader();
   rd.onload = function () {
     var im = new Image();
     im.onload = function () {
-      var k = Math.min(1, 1600 / Math.max(im.width, im.height)), cv = document.createElement('canvas');
+      var k = Math.min(1, 1400 / Math.max(im.width, im.height)), cv = document.createElement('canvas');
       cv.width = Math.round(im.width * k); cv.height = Math.round(im.height * k);
       cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
-      cb(cv.toDataURL('image/jpeg', 0.82));
+      cb(cv.toDataURL('image/jpeg', 0.72));
     };
     im.onerror = function () { cb(null); };
     im.src = rd.result;
@@ -714,7 +733,7 @@ SCREENS.deliver = function () {
   var mine = eatNotes(db, t, t).filter(function (n) { return n.byName === 'Deliveries'; });
   var today = mine.length ? '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Saved today</span>' + mine.map(function (n) { return '<div class="row"><span class="b">No. ' + esc(n.data.no) + '</span><span>' + esc(centreName(n.centre)) + '</span></div>'; }).join('') + '</div>' : '';
   var photo = v.img ? '<img src="' + v.img + '" alt="The photo of the delivery note" style="width:100%;max-height:320px;object-fit:contain;border-radius:12px;background:#fff;border:1px solid var(--line)">' : '';
-  if (v.step === 'reading') return '<h1>Reading the note…</h1>' + photo + '<div class="box info" role="status">Wait a few seconds.</div>';
+  if (v.step === 'reading') return '<h1>Reading the note…</h1>' + photo + '<div class="box info" role="status">It takes 10 to 20 seconds. <span class="b num" id="rsec">' + (v.t0 ? Math.round((Date.now() - v.t0) / 1000) : 0) + '</span> s</div>';
   if (v.step === 'check') {
     var r = v.reads[v.i], other = eatNote(db, r.no);
     return '<h1>Is this correct?</h1>' + (v.reads.length > 1 ? '<span class="pill" style="align-self:flex-start;font-size:16px">Note ' + (v.i + 1) + ' of ' + v.reads.length + ' in the picture</span>' : '') + photo +
@@ -735,13 +754,15 @@ function dvError(title, msg, retry) { S.dv = { step: 'error', title: title, msg:
 function dvRead() {
   var v = S.dv;
   if (!navigator.onLine) return dvError('No internet', 'The picture is read on the internet. Try again when there is internet.', true);
-  S.dv.step = 'reading'; render();
-  post({ action: 'read', mode: S.sess.mode, cred: S.sess.cred, image: v.data }, 150000).then(function (res) {
+  S.dv.step = 'reading'; S.dv.t0 = Date.now(); render();
+  clearInterval(S.dvTick); S.dvTick = setInterval(function () { var el = document.getElementById('rsec'); if (el && S.dv && S.dv.t0) el.textContent = Math.round((Date.now() - S.dv.t0) / 1000); else clearInterval(S.dvTick); }, 1000);
+  post({ action: 'read', mode: S.sess.mode, cred: S.sess.cred, image: v.data }, 45000).then(function (res) {
     var db = view();
     if (!res || !res.ok) {
       var e = res && res.error;
       if (e === 'no_reader') return dvError('Not ready', 'The photo reader is not set up yet. Tell the office.', false);
       if (e === 'pin') return signOut('The deliveries PIN has changed. Sign in again.');
+      if (e === 'reader_busy') return dvError('Busy', 'The photo reader is busy. Wait one minute and try again.', true);
       if (e === 'reader_key') return dvError('Not ready', 'The photo reader does not work: its key is wrong. Tell the office.', false);
       return dvError('Not read', 'The picture could not be read. Try again.', true);
     }
@@ -757,7 +778,7 @@ function dvRead() {
       return dvError('Not clear', (all.length ? 'The picture is not clear' + (miss.length ? ': ' + listWords(miss) + ' cannot be read' : '') : 'No delivery note in the picture') + '. Take the picture again, flat, with the whole note.', false);
     }
     S.dv = { step: 'check', img: v.img, data: v.data, reads: ok, i: 0, unclear: all.length - ok.length, saved: [], photo: res.photo, sentence: readSentence(db, ok[0]) }; render();
-  }).catch(function (e) { if (e && e.message === 'timeout') return dvError('Too slow', 'The reading took too long. Try again.', true); dvError('No internet', 'The picture is read on the internet. Try again when there is internet.', true); });
+  }).catch(function (e) { if (e && e.message === 'timeout') return dvError('Too slow', 'The reading took more than 45 seconds. Try again.', true); dvError('No internet', 'The picture is read on the internet. Try again when there is internet.', true); });
 }
 
 /* ---------- overview ---------- */
@@ -816,30 +837,47 @@ function stockCard(db, c) {
   db.items.forEach(function (it) { var s = st[it.id]; if (!s || (!s.start && !s.inn && !s.used)) return; rows += '<span>' + esc(it.name) + '<br><span class="m s">' + esc(it.unit) + '</span></span><span class="r num">' + fmt(s.start) + '</span><span class="r num">+' + fmt(s.inn) + '</span><span class="r num">−' + fmt(s.used) + '</span><span class="r num b">' + fmt(s.expected) + '</span>'; });
   return '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">' + esc(centreName(c)) + '</span>' + (rows ? '<div class="grid4"><span class="h">Item</span><span class="h r">Counted</span><span class="h r">In</span><span class="h r">Used</span><span class="h r">Now</span>' + rows + '</div>' : '<span class="m">Nothing yet.</span>') + '</div>';
 }
+/* settings: a menu of sections; each section opens on its own (comment of 20/11: too much on one page) */
+var SETSECS = [
+  ['users', 'Users', 'Names of the people who count, and their role'],
+  ['centres', 'Centres and meals', 'Meals of each centre, leftovers, groups that eat there'],
+  ['food', 'Food and units', 'Kg in a bag, eggs in a tray'],
+  ['places', 'Places that receive deliveries', 'Where the delivery notes go'],
+  ['pins', 'PINs and link', 'The three PINs, the link for the people who count'],
+  ['reader', 'Photo reader', 'Gemini key for the photos of the delivery notes'],
+  ['comments', 'Comments on the app', ''],
+  ['install', 'The app on this computer', 'Put CYP EAT on this phone or computer']
+];
 SCREENS.settings = function () {
   var db = view(), names = (db.names || []).filter(function (n) { return n.active; }).sort(function (a, b) { return a.name.localeCompare(b.name); });
-  var open = (db.comments || []).filter(function (c) { return !c.done; }).length;
-  return '<h1>Settings</h1>' +
-    '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Names</span>' +
+  var open = (db.comments || []).filter(function (c) { return !c.done; }).length, sec = S.setSec || '';
+  if (!sec) return '<h1>Settings</h1>' + SETSECS.map(function (x) {
+    var sub = x[0] === 'comments' ? (open ? plural(open, 'comment', 'comments') + ' to do' : 'Nothing to do') : (x[0] === 'reader' ? (S.reader ? 'On' : 'Not set') + ' · ' + x[2] : x[2]);
+    return '<button class="step" data-a="setSec" data-s="' + x[0] + '"><span style="flex:1 1 auto;display:flex;flex-direction:column"><span class="b">' + x[1] + '</span><span class="m s">' + sub + '</span></span>' + ic('next') + '</button>';
+  }).join('') + '<div class="ver">CYP EAT ' + EAT_VERSION + '</div>';
+  var parts = {
+    users: function () { return '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Names</span>' +
     (names.length ? names.map(function (n) { return '<div class="row"><span class="b">' + esc(n.name) + '</span><span style="display:flex;gap:8px;align-items:center"><span class="pill">' + esc(n.role) + '</span><button class="nc" data-a="nameOff" data-id="' + esc(n.id) + '">Remove</button></span></div>'; }).join('') : '<span class="m">No names yet.</span>') +
     '<div style="display:flex;flex-direction:column;gap:8px;border-top:2px solid var(--ink);padding-top:10px;margin-top:6px"><label for="nn" class="lab">Add a name</label><input id="nn" class="in" type="text" data-f="nn" value="' + esc(S.f.nn || '') + '">' +
     '<div class="seg" style="grid-template-columns:repeat(3,minmax(0,1fr))">' + EAT_ROLES.map(function (r) { return '<button class="btn' + ((S.f.role || 'Volunteer') === r ? ' on' : '') + '" data-a="role" data-r="' + r + '">' + r + '</button>'; }).join('') + '</div>' +
-    '<button class="btn pri" data-a="nameAdd">Add</button></div></div>' +
-    '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Centres and meals</span>' + eatCanteens(db).map(function (c) {
+    '<button class="btn pri" data-a="nameAdd">Add</button></div></div>'; },
+    centres: function () { return '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Centres and meals</span>' + eatCanteens(db).map(function (c) {
       return '<div class="row" style="flex-direction:column;align-items:stretch"><span class="b">' + esc(c.name) + '</span><div class="seg" style="grid-template-columns:repeat(3,minmax(0,1fr))">' + EAT_MEALS.map(function (m) { var on = c.meals.indexOf(m) >= 0; return '<button class="btn' + (on ? ' on' : '') + '" data-a="cmeal" data-id="' + c.id + '" data-m="' + m + '" aria-pressed="' + on + '">' + m + '</button>'; }).join('') + '</div>' +
         '<button class="nc' + (c.left ? ' on' : '') + '" data-a="cleft" data-id="' + c.id + '" aria-pressed="' + !!c.left + '" style="align-self:flex-start;margin-top:6px">Leftovers at the end of the day: ' + (c.left ? 'counted' : 'not counted') + '</button>' +
         '<span class="m s" style="padding-top:6px">Also eat here (counted apart): ' + ((c.groups || []).length ? c.groups.map(function (g) { return '<button class="nc" data-a="grpOff" data-id="' + c.id + '" data-g="' + esc(g) + '" aria-label="Remove ' + esc(g) + '">' + esc(g) + ' ×</button>'; }).join(' ') : 'nobody') + '</span>' +
         '<div style="display:flex;gap:6px;padding-top:4px"><input class="in" type="text" aria-label="A group that eats at ' + esc(c.name) + '" placeholder="Holy Family" data-f="grp_' + c.id + '" value="' + esc(S.f['grp_' + c.id] || '') + '"><button class="btn" data-a="grpAdd" data-id="' + c.id + '">Add</button></div></div>';
-    }).join('') + '</div>' +
-    '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Units</span>' + db.items.filter(function (it) { return it.unit !== it.use; }).map(function (it) {
+    }).join('') + '</div>'; },
+    food: function () { return '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Units</span>' + db.items.filter(function (it) { return it.unit !== it.use; }).map(function (it) {
       return '<div class="row"><label for="per_' + it.id + '">1 ' + esc(it.unit.replace(/s$/, '')) + ' of ' + esc(it.name.toLowerCase()) + '&nbsp;=</label><span style="display:flex;gap:6px;align-items:center"><input id="per_' + it.id + '" class="in num" style="width:90px;text-align:right" type="number" inputmode="decimal" value="' + (it.per || '') + '" data-per="' + it.id + '"><span class="m b" style="width:56px">' + esc(it.use) + '</span></span></div>';
-    }).join('') + '<button class="btn" data-a="savePer" style="margin-top:8px">Save the units</button></div>' +
-    installCard() +
-    '<div class="card"><span class="b" style="font-size:18px">PINs</span><button class="btn" data-a="pinChange" data-w="entry">Change the data entry PIN</button><button class="btn" data-a="pinChange" data-w="admin">Change the overview PIN</button><button class="btn" data-a="pinChange" data-w="delivery">' + (db.settings && db.settings.delivery ? 'Change the deliveries PIN' : 'Set the deliveries PIN') + '</button><span class="m s">Deliveries: the person who brings the food takes a photo of each delivery note.</span></div>' +
-    placesCard(db) + readerCard() +
-    '<div class="card"><span class="b" style="font-size:18px">Link for the people who count</span><button class="btn" data-a="copyLink">Copy the link</button><span class="m s">Send the link and, in another message, the data entry PIN.</span></div>' +
-    commentsCard(db) +
-    '<div class="ver">CYP EAT ' + EAT_VERSION + '</div>';
+    }).join('') + '<button class="btn" data-a="savePer" style="margin-top:8px">Save the units</button></div>'; },
+    places: function () { return placesCard(db); },
+    pins: function () { return '<div class="card"><span class="b" style="font-size:18px">PINs</span><button class="btn" data-a="pinChange" data-w="entry">Change the data entry PIN</button><button class="btn" data-a="pinChange" data-w="admin">Change the overview PIN</button><button class="btn" data-a="pinChange" data-w="delivery">' + (db.settings && db.settings.delivery ? 'Change the deliveries PIN' : 'Set the deliveries PIN') + '</button><span class="m s">Deliveries: the person who brings the food takes a photo of each delivery note.</span></div>' + '<div class="card"><span class="b" style="font-size:18px">Link for the people who count</span><button class="btn" data-a="copyLink">Copy the link</button><span class="m s">Send the link and, in another message, the data entry PIN.</span></div>'; },
+    reader: function () { return readerCard(); },
+    comments: function () { return commentsCard(db); },
+    install: function () { return installCard(); }
+  };
+  var title = SETSECS.filter(function (x) { return x[0] === sec; })[0];
+  return '<button class="btn link" data-a="setSec" data-s="">' + ic('back') + 'Settings</button><h1>' + (title ? title[1] : 'Settings') + '</h1>' + (parts[sec] ? parts[sec]() : '');
 };
 
 /* ---------- comment and PIN windows ---------- */
@@ -850,8 +888,8 @@ function commentModal() {
 }
 function pinModal() {
   return '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="pt"><div class="sheet"><h2 id="pt">' + ({ entry: 'New data entry PIN', admin: 'New overview PIN', delivery: 'Deliveries PIN' }[S.f.which]) + '</h2>' +
-    '<label for="np1" class="lab">New PIN (4 to 8 numbers)</label><input id="np1" class="in" type="password" inputmode="numeric" autocomplete="off" data-f="np1" value="' + esc(S.f.np1 || '') + '" data-focus>' +
-    '<label for="np2" class="lab">New PIN again</label><input id="np2" class="in" type="password" inputmode="numeric" autocomplete="off" data-f="np2" value="' + esc(S.f.np2 || '') + '">' +
+    '<label for="np1" class="lab">New PIN (4 numbers)</label><input id="np1" class="in" type="password" inputmode="numeric" maxlength="4" autocomplete="off" data-f="np1" value="' + esc(S.f.np1 || '') + '" data-focus>' +
+    '<label for="np2" class="lab">New PIN again</label><input id="np2" class="in" type="password" inputmode="numeric" maxlength="4" autocomplete="off" data-f="np2" value="' + esc(S.f.np2 || '') + '">' +
     (S.msg ? '<div class="box em">' + esc(S.msg) + '</div>' : '') +
     '<div style="display:flex;gap:8px"><button class="btn" data-a="modalClose" style="flex:1 1 0">Cancel</button><button class="btn pri" data-a="pinSave" style="flex:2 1 0">Save</button></div></div></div>';
 }
@@ -870,7 +908,7 @@ function enter(scr) {
     if (dr && !samePeople(e, pData())) { S.pPend = { d: d, m: m, data: pData(), k: draftKey() }; clearTimeout(S.pTimer); S.pTimer = setTimeout(peopleFlush, 1500); }
   }
   if (scr === 'menu') {
-    var dm = eatDayMenu(db, c, d); S.f = { meals: JSON.parse(JSON.stringify(dm.meals)) };
+    var dm = eatDayMenu(db, c, d); S.f = { meals: JSON.parse(JSON.stringify(dm.meals)), cook: dm.cook || '' };
     if (S.f.meals.Breakfast) S.f.meals.Breakfast.isOther = !S.f.meals.Breakfast.mm && !!S.f.meals.Breakfast.other;
   }
   if (scr === 'before' || scr === 'after') {
@@ -904,7 +942,7 @@ function defaultMeal() {
 }
 function startSession() {
   S.fullNext = true; /* a new sign in reads everything again: the overview also gets the comments */
-  S.date = todayStr(); S.today = S.date; S.week = eatMonday(S.date);
+  S.date = todayStr(); S.today = S.date; S.week = eatMonday(S.date); S.dayOk = false;
   if (S.sess.mode === 'admin') { S.scr = 'overview'; }
   else if (S.sess.mode === 'delivery') { S.dv = { step: 'start' }; S.scr = 'deliver'; }
   else if (!S.sess.nid) S.scr = 'name';
@@ -917,6 +955,8 @@ function signOut(msg) { S.sess = null; KV.del('sess'); S.scr = 'signin'; S.pin =
 
 /* ===================== actions ===================== */
 var A = {};
+A.pickDay = pickDayAct;
+A.setSec = function (el) { S.setSec = el.getAttribute('data-s'); S.notice = ''; render(); };
 /* deliveries */
 A.photo = function (el) {
   var f = el.files && el.files[0]; if (!f) return;
@@ -950,8 +990,8 @@ A.install = function () { if (!S.installEvt) return; var ev = S.installEvt; ev.p
 A.installNo = function () { KV.set('installNo', true); if (S.modal) closeModal(); render(); };
 A.installOpen = function () { S.instAuto = false; openModal(installModal); };
 A.setupSave = function () {
-  var f = S.f, ok = function (p) { return /^\d{4,8}$/.test(p || ''); };
-  if (!ok(f.p1) || !ok(f.p3)) { S.msg = 'Each PIN: 4 to 8 numbers.'; return render(); }
+  var f = S.f, ok = function (p) { return /^\d{4}$/.test(p || ''); };
+  if (!ok(f.p1) || !ok(f.p3)) { S.msg = 'Each PIN: 4 numbers.'; return render(); }
   if (f.p1 !== f.p2 || f.p3 !== f.p4) { S.msg = 'The two PINs written twice are not the same.'; return render(); }
   if (f.p1 === f.p3) { S.msg = 'The two PINs must be different.'; return render(); }
   var es = uid() + uid(), as = uid() + uid();
@@ -966,7 +1006,7 @@ A.mode = function (el) { S.pinMode = el.getAttribute('data-m'); S.pin = ''; S.ms
 A.key = function (el) {
   var k = el.getAttribute('data-k');
   if (k === 'del') { S.pin = S.pin.slice(0, -1); S.msg = ''; return render(); }
-  if (k !== 'ok') { if (S.pin.length < 8) S.pin += k; S.msg = ''; return render(); }
+  if (k !== 'ok') { if (S.pin.length >= 4) return; S.pin += k; S.msg = ''; render(); if (S.pin.length === 4) A.key({ getAttribute: function () { return 'ok'; } }); return; }
   var mode = S.pinMode, st = (view().settings || {})[mode];
   if (!st || !st.salt) { S.msg = mode === 'delivery' && view().settings && view().settings.entry ? 'The overview has not set the deliveries PIN yet.' : 'Open CYP EAT once with internet.'; return render(); }
   var cred = credOf(st.salt, S.pin), pin = S.pin;
@@ -1019,6 +1059,7 @@ A.typing = function () { S.f.typing = true; S.keepScroll = true; render(); };
 A.typeOk = function () { var n = Math.round(Number(S.f.tn)); if (isFinite(n) && n >= 0) { S.f.hist = []; setCount(n); peopleChanged(0); } S.f.typing = false; S.keepScroll = true; render(); };
 A.skip = function (el) { saveEntry('dskip', '', { on: el.getAttribute('data-on') === '1' }); S.keepScroll = true; render(); };
 A.bfm = function (el) { var x = S.f.meals.Breakfast, v = el.getAttribute('data-v'); x.mm = v === 'mm'; x.isOther = v === 'other'; S.keepScroll = true; render(); };
+A.cook = function (el) { var n = el.getAttribute('data-n'); S.f.cook = S.f.cook === n ? '' : n; S.keepScroll = true; render(); };
 A.mmm = function (el) { var x = S.f.meals[el.getAttribute('data-m')]; x.mm = !x.mm; S.keepScroll = true; render(); };
 A.rel = function (el) { var x = S.f.meals[el.getAttribute('data-m')], id = el.getAttribute('data-id'), i = x.relish.indexOf(id); if (i >= 0) x.relish.splice(i, 1); else x.relish.push(id); S.keepScroll = true; render(); };
 A.addRow = function (el) { var id = el.getAttribute('data-id'), it = eatItem(view(), id); if (S.f.rows.indexOf(id) < 0) S.f.rows.push(id); if (it && it.unit !== it.use) S.f.u[id] = 'unit'; S.keepScroll = true; render(); };
@@ -1035,7 +1076,7 @@ A.saveMenu = function () {
       ms[m] = { mm: !!x.mm, other: other };
     } else ms[m] = { mm: !!x.mm, relish: x.relish.slice(), veg: (x.veg || '').trim() };
   }
-  saveEntry('dmenu', '', { meals: ms }); go('before');
+  saveEntry('dmenu', '', { meals: ms, cook: (f.cook || '').trim() }); go('before');
 };
 A.unit = function (el) { var k = el.getAttribute('data-k'); S.f.u[k] = el.getAttribute('data-v'); S.keepScroll = true; render(); };
 A.nc = function (el) {
@@ -1160,7 +1201,7 @@ A.savePer = function () {
 A.pinChange = function (el) { S.f.which = el.getAttribute('data-w'); S.f.np1 = ''; S.f.np2 = ''; S.msg = ''; openModal(pinModal); };
 A.pinSave = function () {
   var p = S.f.np1 || '';
-  if (!/^\d{4,8}$/.test(p)) { S.msg = '4 to 8 numbers.'; return drawModal(); }
+  if (!/^\d{4}$/.test(p)) { S.msg = '4 numbers.'; return drawModal(); }
   if (p !== S.f.np2) { S.msg = 'The two PINs are not the same.'; return drawModal(); }
   if (!S.online) { S.msg = 'Changing a PIN needs internet.'; return drawModal(); }
   var salt = uid() + uid(), cred = credOf(salt, p), w = S.f.which;
@@ -1259,7 +1300,7 @@ function saveFile(name, blob) { try { var a = document.createElement('a'); a.hre
 function exportXlsx() {
   var db = view(), E = db.entries.filter(function (e) { return !e.del; }).sort(function (a, b) { return (a.date + a.centre + EAT_MEALS.indexOf(a.meal)) < (b.date + b.centre + EAT_MEALS.indexOf(b.meal)) ? -1 : 1; });
   var people = { name: 'People', head: ['Date', 'Day', 'Centre', 'Meal', 'Plates', 'Of which', 'Counted by', 'Saved at'], rows: [] };
-  var day = { name: 'Food a day', head: ['Date', 'Day', 'Centre', 'Menu', 'Item', 'Taken out', 'Left at the end of the day', 'Unit written', 'Used', 'Unit', 'Plates of the day', 'Amount a plate', 'Food not counted'], rows: [] };
+  var day = { name: 'Food a day', head: ['Date', 'Day', 'Centre', 'Menu', 'Cook', 'Item', 'Taken out', 'Left at the end of the day', 'Unit written', 'Used', 'Unit', 'Plates of the day', 'Amount a plate', 'Food not counted'], rows: [] };
   var food = { name: 'Food a meal (old)', head: ['Date', 'Day', 'Centre', 'Meal', 'Menu', 'Item', 'Before', 'Back', 'Unit written', 'Used', 'Unit', 'Plates', 'Kept for later meal', 'Amount a plate', 'Food not counted'], rows: [] };
   var rec = { name: 'Delivery notes', head: ['Note no.', 'Date', 'Day', 'Centre', 'Item', 'Quantity', 'Unit', 'Should last (days)', 'Until', 'Remark', 'Received by', 'Copied by'], rows: [] };
   var end = { name: 'Stock counts', head: ['Date', 'Day', 'Centre', 'Count', 'Item', 'Expected', 'Counted', 'Difference', 'Unit', 'By'], rows: [] };
@@ -1269,13 +1310,13 @@ function exportXlsx() {
     if (e.type === 'people') people.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, eatPlates(e), e.data.g ? e.data.n + ' ' + c + Object.keys(e.data.g).map(function (k) { return ', ' + e.data.g[k] + ' ' + k; }).join('') : '', e.byName, localTime(e.saved)]);
     if ((e.type === 'dbefore' || e.type === 'dskip') && !seen['d' + e.centre + e.date]) {
       seen['d' + e.centre + e.date] = 1;
-      var du = eatDayUse(db, e.centre, e.date), db0 = eatGet(db, 'dbefore', e.centre, e.date, ''), da = eatLeft(db, e.centre) ? eatGet(db, 'dafter', e.centre, e.date, '') : null, dmt = dayMenuText(db, eatDayMenu(db, e.centre, e.date));
-      if (du.skipped) { day.rows.push([e.date, WD[eatWeekday(e.date)], c, dmt, '', '', '', '', '', '', du.plates, '', 'Yes']); return; }
+      var du = eatDayUse(db, e.centre, e.date), db0 = eatGet(db, 'dbefore', e.centre, e.date, ''), da = eatLeft(db, e.centre) ? eatGet(db, 'dafter', e.centre, e.date, '') : null, dmn = eatDayMenu(db, e.centre, e.date), dmt = dayMenuText(db, dmn);
+      if (du.skipped) { day.rows.push([e.date, WD[eatWeekday(e.date)], c, dmt, dmn.cook, '', '', '', '', '', '', du.plates, '', 'Yes']); return; }
       if (!db0) return;
       for (var did in db0.data.q) {
         var dit = did === 'pcs' ? { name: 'Chicken pieces', use: 'pieces' } : eatItem(db, did); if (!dit) continue;
         var dper = did === 'pcs' ? (du.pieces != null && du.closed && du.base ? du.pieces / du.base : null) : eatPerPlate(du, did), dused = did === 'pcs' ? du.pieces : du.used[did];
-        day.rows.push([e.date, WD[eatWeekday(e.date)], c, dmt, dit.name, db0.data.q[did] == null ? 'Not counted' : db0.data.q[did], !eatLeft(db, e.centre) ? 'Not counted at this centre' : (da ? (da.data.q[did] == null ? (da.data.nc && da.data.nc[did] ? 'Not counted' : '') : da.data.q[did]) : 'Not yet'), did === 'pcs' ? 'pieces' : (rowUnit(dit, (db0.data.u || {})[did]) === 'unit' ? dit.unit : dit.use), dused == null ? '' : dused, dit.use, du.plates, dper == null ? '' : (dit.use === 'kg' ? Math.round(dper * 1000) + ' g' : Math.round(dper * 100) / 100), '']);
+        day.rows.push([e.date, WD[eatWeekday(e.date)], c, dmt, dmn.cook, dit.name, db0.data.q[did] == null ? 'Not counted' : db0.data.q[did], !eatLeft(db, e.centre) ? 'Not counted at this centre' : (da ? (da.data.q[did] == null ? (da.data.nc && da.data.nc[did] ? 'Not counted' : '') : da.data.q[did]) : 'Not yet'), did === 'pcs' ? 'pieces' : (rowUnit(dit, (db0.data.u || {})[did]) === 'unit' ? dit.unit : dit.use), dused == null ? '' : dused, dit.use, du.plates, dper == null ? '' : (dit.use === 'kg' ? Math.round(dper * 1000) + ' g' : Math.round(dper * 100) / 100), '']);
       }
     }
     if ((e.type === 'before' || e.type === 'skip') && !seen[e.centre + e.date + e.meal]) {
@@ -1318,7 +1359,7 @@ window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault()
 window.addEventListener('appinstalled', function () { S.installEvt = null; KV.set('installed', true); if (S.modal === installModal) closeModal(); bgRender(); });
 setInterval(function () { if (S.sess && document.visibilityState === 'visible') sync(); }, 30000);
 document.addEventListener('visibilitychange', function () {
-  if (document.visibilityState === 'hidden') { peopleFlush(); return; }
+  if (document.visibilityState === 'hidden') { peopleFlush(); S.hiddenAt = Date.now(); return; }
   if (!S.sess) return;
   newDay(); sync();
 });
@@ -1326,9 +1367,8 @@ window.addEventListener('pagehide', function () { peopleFlush(); });
 /* the app left open overnight, with or without internet: the next day starts on the new date */
 function newDay() {
   var t = todayStr(); if (!S.today) S.today = t;
-  if (t === S.today) return;
-  var wasToday = S.date === S.today; S.today = t;
-  if (wasToday) { S.date = t; S.week = eatMonday(t); fixMeal(); enter(S.scr); render(); }
+  /* a new date, or back after 30 minutes: the day is asked again */
+  if (t !== S.today || (S.dayAt && Date.now() - S.dayAt > 30 * 60000 && S.hiddenAt && Date.now() - S.hiddenAt > 30 * 60000)) { S.today = t; S.dayOk = false; render(); }
 }
 setInterval(function () { if (S.sess) newDay(); }, 60000);
 
