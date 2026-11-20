@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.7';
+var EAT_VERSION = 'alpha 0.8';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 var EAT_ROLES = ['Volunteer', 'Canteen', 'Educator'];
 /* three accesses: entry (people and food), delivery (photos of the delivery notes), admin (overview) */
@@ -604,33 +604,44 @@ function readerPrompt_(db) {
   var items = db.items.map(function (it) { return it.id + ' = ' + it.name + ' (in ' + it.unit + ')'; }).join('; ');
   return 'You read a photo of a paper delivery note of Self Reliance, the farm and butchery of the Pope John XXIII Association in Ndola, Zambia. ' +
     'The note has a printed red number, a date, the place the food goes to, lines with a quantity and an item, and "received by". ' +
-    'Return only this JSON: {"readable": true or false, "note_number": "the digits of the red number, or empty", "date": "YYYY-MM-DD, or empty", ' +
-    '"place": "the place the food goes to: one of ' + places + ', or the name as written", "items": [{"item": "item id", "quantity": number}], ' +
-    '"received_by": "the name, or empty", "remark": "anything else written, short"}. ' +
+    'The photo often shows the booklet open, with two notes side by side: read every note in the photo. ' +
+    'Return only this JSON: {"notes": [{"readable": true or false, "note_number": "the digits of the red number, or empty", "date": "YYYY-MM-DD, or empty", ' +
+    '"place": "the place the food goes to (after M/s): one of ' + places + ', or the name as written", "items": [{"item": "item id", "quantity": number}], ' +
+    '"received_by": "the name, or empty", "remark": "anything else written, short"}]}. ' +
     'Item ids: ' + items + '. Give each quantity in the unit in brackets: mealie meal in bags (packs or bags of mealie meal are bags), eggs in trays, chickens as whole chickens, pork and fish in kg. ' +
     'Halves and quarters as 0.5 and 0.25. Dates are written day/month/year; the year is 20' + new Date().getFullYear().toString().slice(2) + ' if not written. ' +
-    'If the photo is not a delivery note, or the number or the quantities cannot be read, set "readable" to false.';
+    'If a note is empty, cut, or its number or quantities cannot be read, set its "readable" to false. If the photo shows no delivery note, return {"notes": []}.';
 }
 function readNote_(img, db) {
   var key = props_().getProperty('geminiKey'); if (!key) return { ok: false, error: 'no_reader' };
   var name = 'delivery-' + Utilities.formatDate(new Date(), 'Africa/Lusaka', 'yyyy-MM-dd_HHmmss') + '.jpg';
   var file = photoFolder_().createFile(Utilities.newBlob(Utilities.base64Decode(img), 'image/jpeg', name));
   var body = { contents: [{ parts: [{ text: readerPrompt_(db) }, { inline_data: { mime_type: 'image/jpeg', data: img } }] }], generationConfig: { responseMimeType: 'application/json' } };
-  var models = [props_().getProperty('geminiModel') || 'gemini-flash-latest', 'gemini-flash-lite-latest'], text = '', last = '';
-  for (var i = 0; i < models.length && !text; i++) {
+  /* Flash-Lite reads a note in about 8 seconds (Flash about 60, 20/11/2026): Flash only when Flash-Lite cannot read it */
+  var models = [props_().getProperty('geminiModel') || 'gemini-flash-lite-latest', 'gemini-flash-latest'], best = null, last = '';
+  for (var i = 0; i < models.length; i++) {
     var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent', { method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key }, payload: JSON.stringify(body), muteHttpExceptions: true });
     var code = res.getResponseCode(); last = code + ' ' + res.getContentText().slice(0, 160);
     if (code === 404) continue;
-    if (code !== 200) return { ok: false, error: code === 400 || code === 403 ? 'reader_key' : 'reader', detail: last, photo: file.getId() };
-    var out = JSON.parse(res.getContentText()), parts = (((out.candidates || [])[0] || {}).content || {}).parts || [];
+    if (code !== 200) { if (best) break; return { ok: false, error: code === 400 || code === 403 ? 'reader_key' : 'reader', detail: last, photo: file.getId() }; }
+    var out = JSON.parse(res.getContentText()), parts = (((out.candidates || [])[0] || {}).content || {}).parts || [], text = '';
     for (var j = 0; j < parts.length; j++) if (parts[j].text) text += parts[j].text;
+    var r; try { r = JSON.parse(text.replace(/^\s*```(?:json)?/, '').replace(/```\s*$/, '')); } catch (e) { continue; }
+    var notes = (r.notes || (r.note_number !== undefined ? [r] : [])).map(function (n) { return readOne_(n, db); });
+    var good = notes.filter(function (n) { return n.clear && n.no && n.centre && Object.keys(n.q).length; }).length;
+    if (!best || good > best.good) best = { notes: notes, good: good, model: models[i] };
+    if (good && good === notes.length) break;
   }
-  if (!text) return { ok: false, error: 'reader', detail: last, photo: file.getId() };
-  var r; try { r = JSON.parse(text.replace(/^\s*```(?:json)?/, '').replace(/```\s*$/, '')); } catch (e) { return { ok: false, error: 'reader', detail: 'not json', photo: file.getId() }; }
+  if (!best) return { ok: false, error: 'reader', detail: last, photo: file.getId() };
+  return { ok: true, photo: file.getId(), reads: best.notes, read: best.notes[0] || { clear: false, no: '', date: '', centre: '', q: {} }, model: best.model };
+}
+function readOne_(r, db) {
   var place = String(r.place || '').toLowerCase().trim(), centre = '';
   eatPlaces(db).forEach(function (c) { var n = c.name.toLowerCase(); if (!centre && place && (n === place || n.indexOf(place) >= 0 || place.indexOf(n.split(' /')[0]) >= 0)) centre = c.id; });
+  /* Holy Family's meals are cooked at Luigi: its notes go to Luigi */
+  if (!centre && /holy family/.test(place)) eatPlaces(db).forEach(function (c) { if (!centre && (c.groups || []).some(function (g) { return /holy family/i.test(g); })) centre = c.id; });
   var q = {}; (r.items || []).forEach(function (x) { var it = eatItem(db, String(x.item || '')); var n = eatNum(x.quantity); if (it && n) q[it.id] = (q[it.id] || 0) + n; });
-  return { ok: true, photo: file.getId(), read: { clear: r.readable !== false, no: eatNoteNo(r.note_number), date: eatIsDate(r.date) ? r.date : '', centre: centre, placeText: eatText(r.place, 60), q: q, recv: eatText(r.received_by, 60), remark: eatText(r.remark, 200) } };
+  return { clear: r.readable !== false, no: eatNoteNo(r.note_number), date: eatIsDate(r.date) ? r.date : '', centre: centre, placeText: eatText(r.place, 60), q: q, recv: eatText(r.received_by, 60), remark: eatText(r.remark, 200) };
 }
 /* Run once from the editor after this update: Google asks Mauro to allow the photo reader (internet calls and the photo folder). */
 function authorize() { UrlFetchApp.fetch('https://generativelanguage.googleapis.com/', { muteHttpExceptions: true }); photoFolder_(); Logger.log('Done: the photo reader is allowed. The key is written in the app: Overview > Settings > Photo reader.'); }
