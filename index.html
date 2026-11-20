@@ -529,7 +529,7 @@ SCREENS.people = function () {
     '<div class="adds"><button class="btn" data-a="add" data-n="5">+5</button><button class="btn" data-a="add" data-n="10">+10</button><button class="btn" data-a="adding">Other</button></div>' +
     (S.f.adding ? '<div class="card"><label class="lab" for="an">How many more plates? (counted by hand)</label><input id="an" class="in num" type="number" inputmode="numeric" min="1" data-f="an" data-focus><button class="btn pri" data-a="addOk">Add</button></div>' : '') +
     '<button class="btn" data-a="undo">Undo the last one</button>' +
-    (st === 'done' ? '<div class="box ok" role="status">' + S.meal + ' is finished: ' + peopleLine(pData()) + '. A new tap opens the count again.</div>'
+    (st === 'done' ? '<div class="box ok" role="status">' + S.meal + ' is finished: ' + peopleLine(pData()) + '. A new tap opens the count again.</div>' + (eatLeft(db, c) ? '<button class="btn pri big" data-a="go" data-to="after">Next: leftovers</button>' : '')
       : '<button class="btn big" data-a="finish" style="background:var(--ok-ink);border-color:var(--ok-ink);color:#fff">' + ic('check') + 'Finish ' + S.meal.toLowerCase() + '</button>') +
     (S.f.typing ? '<div class="card"><label class="lab" for="tn">Number of plates in all' + (S.f.grp ? ' for ' + esc(S.f.grp) : '') + '</label><input id="tn" class="in num" type="number" inputmode="numeric" min="0" value="' + n + '" data-f="tn" data-focus><button class="btn" data-a="typeOk">OK</button></div>' : '<button class="btn link" data-a="typing">Type the number in all</button>') +
     '<span class="m s" style="text-align:center">Every change is saved by itself. Press Finish when the meal is over.</span>' +
@@ -566,11 +566,16 @@ SCREENS.today = function () {
   var db = view(), c = S.sess.centre, d = S.date, dm = eatDayMenu(db, c, d), left = eatLeft(db, c);
   var b = eatGet(db, 'dbefore', c, d, ''), a = eatGet(db, 'dafter', c, d, ''), sk = eatGet(db, 'dskip', c, d, '');
   var out = dayBar() + '<span class="m b">' + esc(centreName(c)) + '</span>';
-  if (sk && sk.data.on) out += '<div class="box em">Food not counted on ' + dayName(d) + '. People are counted.</div><button class="btn" data-a="skip" data-on="0">Undo</button>';
+  /* the work of the day starts here: 1 and 2 first, then the count of the people */
+  var ready = (sk && sk.data.on) || (dm.saved && b), going = countMeals().some(function (m) { return eatGet(db, 'people', c, d, m); });
+  var startBtn = '<button class="btn big' + (ready ? ' pri' : '') + '" data-a="go" data-to="people" style="min-height:64px;font-size:20px">' + ic('people') + (going ? 'Go on counting the people' : 'Start counting the people') + '</button>' +
+    (ready ? '' : '<span class="m s" style="text-align:center">First answer 1 and 2, then start counting.</span>');
+  if (sk && sk.data.on) out += '<div class="box em">Food not counted on ' + dayName(d) + '. People are counted.</div><button class="btn" data-a="skip" data-on="0">Undo</button>' + startBtn;
   else out += '<div style="display:flex;flex-direction:column;gap:8px">' +
     stepBtn('1', 'What do we eat today?', esc(dayMenuText(db, dm)) + (dm.saved ? '' : ' (plan)') + (dm.cook ? ' · Cook: ' + esc(dm.cook) : ''), 'menu', dm.saved ? 'ok' : 'em') +
     stepBtn('2', 'Quantities for today', b ? esc(qtyLine(db, b.data.q, b.data.u)) : 'Food taken out of the store and the cold room for the meals of today', 'before', b ? 'ok' : (dm.saved ? 'em' : 'off')) +
-    (left ? stepBtn('3', 'Leftovers', a ? 'Saved' : 'What is left at the end of the day', 'after', a ? 'ok' : (b ? 'em' : 'off')) : '') +
+    startBtn +
+    (left ? stepBtn('3', 'Leftovers', a ? 'Saved' : 'After the count: what is left at the end of the day', 'after', a ? 'ok' : (b ? 'em' : 'off')) : '') +
     '</div><button class="btn" data-a="skip" data-on="1">I didn\'t count the food</button>';
   /* the day: plates and the amount a plate */
   var u = eatDayUse(db, c, d), rows = '';
@@ -1145,10 +1150,10 @@ A.key = function (el) {
 };
 function remember() { KV.set('sess', S.sess); KV.set('me', { nid: S.sess.nid, name: S.sess.name, centre: S.sess.centre }); }
 A.pickName = function (el) { var n = eatFind(view().names, el.getAttribute('data-id')); S.sess.nid = n.id; S.sess.name = n.name; S.sess.centre = ''; KV.set('sess', S.sess); S.scr = 'centre'; render(); };
-A.pickCentre = function (el) { S.sess.centre = el.getAttribute('data-id'); remember(); S.meal = defaultMeal(); go('people'); };
-A.who = function () { S.scr = 'name'; render(); };
+A.pickCentre = function (el) { S.sess.centre = el.getAttribute('data-id'); remember(); S.meal = defaultMeal(); var to = S.afterCentre || 'today'; S.afterCentre = ''; go(to); };
+A.who = function () { peopleFlush(); S.afterCentre = ''; S.scr = 'name'; render(); };
 A.signout = function () { signOut(''); };
-A.centreAsk = function () { peopleFlush(); S.scr = 'centre'; S.f = {}; render(); };
+A.centreAsk = function () { peopleFlush(); S.afterCentre = S.scr === 'people' ? 'people' : 'today'; S.scr = 'centre'; S.f = {}; render(); };
 A.dayAsk = function () { peopleFlush(); askDay(true); render(); };
 A.calDay = function (el) { var d = el.getAttribute('data-d'); if (!eatIsDate(d) || d > todayStr()) return; S.pick = d; S.keepScroll = true; render(); };
 A.calMonth = function (el) { var y = Number(S.calM.slice(0, 4)), m = Number(S.calM.slice(5, 7)) - 1 + Number(el.getAttribute('data-d')); var dt = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 8) + '01'; if (dt > todayStr()) return; S.calM = dt; S.keepScroll = true; render(); };
@@ -1187,7 +1192,13 @@ function ringTap() { var b = document.querySelector('.tap'); if (!b) return; b.c
 A.tap = function () { vibrate(); ringTap(); setCount(curCount() + 1); peopleChanged(1); };
 A.grp = function (el) { S.f.grp = el.getAttribute('data-g'); S.keepScroll = true; render(); };
 A.add = function (el) { var k = Number(el.getAttribute('data-n')); vibrate(); ringTap(); setCount(curCount() + k); peopleChanged(k); };
-A.finish = function () { S.f.done = true; S.pPend = { d: S.date, m: S.meal, data: pData(), k: draftKey() }; peopleFlush(); S.keepScroll = true; render(); };
+A.finish = function () {
+  S.f.done = true; S.pPend = { d: S.date, m: S.meal, data: pData(), k: draftKey() }; peopleFlush();
+  /* where the leftovers are counted, they come next, once every meal to count is finished (Mauro, 20/11) */
+  var db = view(), c = S.sess.centre, allDone = countMeals().every(function (m) { var p = eatGet(db, 'people', c, S.date, m); return p && p.data.done; });
+  if (eatLeft(db, c) && allDone) { var line = S.meal + ' is finished: ' + peopleLine(pData()) + '. Now the leftovers.'; go('after'); S.good = line; return render(); }
+  S.keepScroll = true; render();
+};
 A.adding = function () { S.f.adding = !S.f.adding; S.f.an = ''; S.keepScroll = true; render(); };
 A.addOk = function () { var k = Math.round(Number(S.f.an)); if (isFinite(k) && k > 0 && k < 2000) { setCount(curCount() + k); S.f.adding = false; peopleChanged(k); } S.keepScroll = true; render(); };
 A.undo = function () { var h = S.f.hist.length ? S.f.hist.pop() : { g: S.f.grp || '', k: 1 }; var keep = S.f.grp; S.f.grp = h.g; setCount(Math.max(0, curCount() - h.k)); peopleChanged(0); S.f.grp = keep; S.keepScroll = true; render(); };
@@ -1558,7 +1569,7 @@ document.addEventListener('visibilitychange', function () {
   if (!S.sess) return;
   var away = S.hiddenAt ? Date.now() - S.hiddenAt : 0; S.hiddenAt = 0;
   /* back after 30 minutes: the day is asked again; from the count of the people (saved by itself) the centre too */
-  newDay(); if (away > 30 * 60000 && S.dayOk && S.sess.mode === 'entry') { askDay(true); if (S.scr === 'people') { peopleFlush(); S.scr = 'centre'; } bgRender(); }
+  newDay(); if (away > 30 * 60000 && S.dayOk && S.sess.mode === 'entry') { askDay(true); if (S.scr === 'people') { peopleFlush(); S.afterCentre = 'people'; S.scr = 'centre'; } bgRender(); }
   sync();
 });
 window.addEventListener('pagehide', function () { peopleFlush(); });
