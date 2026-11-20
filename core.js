@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.9';
+var EAT_VERSION = 'alpha 0.10';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 var EAT_ROLES = ['Volunteer', 'Canteen', 'Educator'];
 /* three accesses: entry (people and food), delivery (photos of the delivery notes), admin (overview) */
@@ -230,8 +230,9 @@ function eatStock(db, centre, upTo, atStart) {
   }
   for (i = 0; i < db.entries.length; i++) {
     e = db.entries[i];
-    if (e.del || e.centre !== centre || e.date < first || e.date > lastDay) continue;
-    if (e.type === 'received' || (e.type === 'note' && !e.data.off)) for (var id in e.data.q) if (out[id] && e.data.q[id] != null) out[id].inn += e.data.q[id];
+    if (e.del || e.date < first || e.date > lastDay) continue;
+    var id, nq = e.type === 'received' && e.centre === centre ? e.data.q : (e.type === 'note' && !e.data.off && eatNoteHas(e, centre) ? eatNoteQ(e, centre) : null);
+    if (nq) for (id in nq) if (out[id] && nq[id] != null) out[id].inn += nq[id];
   }
   for (var d = first, guard = 0; d <= lastDay && guard < 400; d = eatAddDays(d, 1), guard++) {
     var uses = eatUsesOfDay(db, centre, d);
@@ -268,11 +269,26 @@ function eatNoteUntil(e) { var n = e && e.data ? e.data.days : null; return n ? 
 function eatNoteNo(x) { var t = String(x == null ? '' : x).replace(/\D/g, ''); return t.length >= 1 && t.length <= 8 ? String(Number(t)) : ''; }
 function eatNote(db, no) { no = eatNoteNo(no); return no ? eatIndex(db)['note|' + no] || null : null; }
 /* notes with a date from..to (both included), not removed, by date then number */
+/* A note can say that a part is for another place ("02 chickens for Chinika House"): data.parts = [{ to, name, q }].
+   The quantities on the note are the whole delivery; the part is taken off the note's centre and counted for the other place. */
+function eatNoteHas(e, centre) {
+  if (e.centre === centre) return true;
+  var ps = (e.data || {}).parts || []; for (var i = 0; i < ps.length; i++) if (ps[i].to === centre) return true;
+  return false;
+}
+function eatNoteQ(e, centre) {
+  var q = {}, ps = (e.data || {}).parts || [], id, i;
+  if (e.centre === centre) {
+    for (id in e.data.q) q[id] = e.data.q[id];
+    for (i = 0; i < ps.length; i++) for (id in ps[i].q) if (q[id] != null) q[id] = Math.max(0, Math.round((q[id] - ps[i].q[id]) * 1000) / 1000);
+  } else for (i = 0; i < ps.length; i++) if (ps[i].to === centre) for (id in ps[i].q) q[id] = (q[id] || 0) + ps[i].q[id];
+  return q;
+}
 function eatNotes(db, from, to, centre) {
   var out = [];
   for (var i = 0; i < db.entries.length; i++) {
     var e = db.entries[i];
-    if (e.del || e.type !== 'note' || e.data.off || e.date < from || e.date > to || (centre && e.centre !== centre)) continue;
+    if (e.del || e.type !== 'note' || e.data.off || e.date < from || e.date > to || (centre && !eatNoteHas(e, centre))) continue;
     out.push(e);
   }
   return out.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : Number(a.data.no) - Number(b.data.no); });
@@ -422,7 +438,13 @@ function eatClean(db, type, d) {
   }
   if (type === 'received') return { q: qs(d.q) };
   if (type === 'endweek' || type === 'startweek') return { q: qs(d.q), nc: ncs(d.nc) };
-  if (type === 'note') { var nq = qs(d.q), q2 = {}; for (var k2 in nq) if (k2 !== 'pcs' && nq[k2] != null && nq[k2] > 0) q2[k2] = nq[k2]; var dy = Math.round(Number(d.days)); return { no: eatNoteNo(d.no), q: q2, days: isFinite(dy) && dy >= 1 && dy <= 60 ? dy : null, remark: eatText(d.remark, 200), recv: eatText(d.recv, 60), off: !!d.off, photo: /^[A-Za-z0-9_\-]{10,80}$/.test(String(d.photo || '')) ? String(d.photo) : '' }; }
+  if (type === 'note') { var nq = qs(d.q), q2 = {}; for (var k2 in nq) if (k2 !== 'pcs' && nq[k2] != null && nq[k2] > 0) q2[k2] = nq[k2]; var dy = Math.round(Number(d.days)); var parts = [], psrc = d.parts || [];
+    for (var pi = 0; pi < psrc.length && parts.length < 4; pi++) {
+      var pp = psrc[pi] || {}, pq = qs(pp.q), pq2 = {}, pany = false, pto = eatCentre(db, pp.to) ? String(pp.to) : '', pname = eatText(pp.name, 60) || (pto ? eatCentre(db, pto).name : '');
+      for (var pk in pq) if (q2[pk] && pq[pk] > 0) { pq2[pk] = Math.min(pq[pk], q2[pk]); pany = true; }
+      if (pany && pname) parts.push({ to: pto, name: pname, q: pq2 });
+    }
+    var nd = { no: eatNoteNo(d.no), q: q2, days: isFinite(dy) && dy >= 1 && dy <= 60 ? dy : null, remark: eatText(d.remark, 200), recv: eatText(d.recv, 60), off: !!d.off, photo: /^[A-Za-z0-9_\-]{10,80}$/.test(String(d.photo || '')) ? String(d.photo) : '' }; if (parts.length) nd.parts = parts; return nd; }
   return {};
 }
 
@@ -481,11 +503,11 @@ function eatHandle(req, store) {
   }
   if (dirty) store.save(db, info);
   var since = Number(req.since) || 0, out = pub();
-  out.ok = true; out.results = results; out.rev = db.rev; out.now = now; out.full = since === 0; out.reader = !!(store.readerOn && store.readerOn());
+  out.ok = true; out.results = results; out.rev = db.rev; out.now = now; out.full = since === 0; out.reader = !!(store.readerOn && store.readerOn()); if (mode === 'admin' && store.backupInfo) out.backup = store.backupInfo();
   out.entries = [];
   for (i = 0; i < db.entries.length; i++) if (db.entries[i].rev > since) out.entries.push(db.entries[i]);
   out.comments = [];
   for (i = 0; i < db.comments.length; i++) if (db.comments[i].rev > since && (mode === 'admin')) out.comments.push(db.comments[i]);
   return out;
 }
-if (typeof module !== 'undefined') module.exports = { eatNewDb: eatNewDb, eatApply: eatApply, eatHandle: eatHandle, eatMealUse: eatMealUse, eatNote: eatNote, eatNotes: eatNotes, eatNoteGaps: eatNoteGaps, eatNoteNo: eatNoteNo, eatUpgrade: eatUpgrade, eatConv: eatConv, eatStock: eatStock, eatPlates: eatPlates, eatCanteens: eatCanteens, eatPlaces: eatPlaces, eatDayUse: eatDayUse, eatDayMenu: eatDayMenu, eatDayRows: eatDayRows, eatUsesOfDay: eatUsesOfDay, eatNum: eatNum, eatLeft: eatLeft, eatWeekCount: eatWeekCount, eatNoteUntil: eatNoteUntil, eatPerPlate: eatPerPlate, eatRows: eatRows, eatMenuOf: eatMenuOf, eatGet: eatGet, eatKey: eatKey, eatMonday: eatMonday, eatAddDays: eatAddDays, eatToday: eatToday, eatWeekday: eatWeekday, EAT_VERSION: EAT_VERSION };
+if (typeof module !== 'undefined') module.exports = { eatNewDb: eatNewDb, eatApply: eatApply, eatHandle: eatHandle, eatMealUse: eatMealUse, eatNote: eatNote, eatNotes: eatNotes, eatNoteGaps: eatNoteGaps, eatNoteNo: eatNoteNo, eatUpgrade: eatUpgrade, eatConv: eatConv, eatStock: eatStock, eatNoteQ: eatNoteQ, eatNoteHas: eatNoteHas, eatPlates: eatPlates, eatCanteens: eatCanteens, eatPlaces: eatPlaces, eatDayUse: eatDayUse, eatDayMenu: eatDayMenu, eatDayRows: eatDayRows, eatUsesOfDay: eatUsesOfDay, eatNum: eatNum, eatLeft: eatLeft, eatWeekCount: eatWeekCount, eatNoteUntil: eatNoteUntil, eatPerPlate: eatPerPlate, eatRows: eatRows, eatMenuOf: eatMenuOf, eatGet: eatGet, eatKey: eatKey, eatMonday: eatMonday, eatAddDays: eatAddDays, eatToday: eatToday, eatWeekday: eatWeekday, EAT_VERSION: EAT_VERSION };
