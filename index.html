@@ -56,7 +56,7 @@ textarea.in{min-height:110px;padding:10px 12px}
 .nc.on{background:var(--em-bg);border-color:var(--em);color:var(--em-ink)}
 .step{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;min-height:64px;width:100%;text-align:left}
 .dot{width:32px;height:32px;border-radius:999px;display:flex;align-items:center;justify-content:center;font-weight:700;flex-shrink:0;font-size:13px}
-.dot.ok{background:var(--ok-bg);color:var(--ok-ink)} .dot.em{background:var(--blue);color:#fff} .dot.off{background:var(--off-bg);color:var(--off-ink)}
+.dot.ok{background:var(--ok-bg);color:var(--ok-ink)} .dot.em{background:var(--blue);color:#fff} .dot.off{background:var(--off-bg);color:var(--off-ink)} .dot.skip{background:var(--bad-bg);color:var(--bad-ink)}
 .box{border-radius:8px;padding:12px;font-weight:700;border:2px solid}
 .box.ok{background:var(--ok-bg);color:var(--ok-ink);border-color:var(--ok-ink)}
 .box.em{background:var(--em-bg);color:var(--em-ink);border-color:var(--em)}
@@ -99,6 +99,9 @@ main>.btn.link.bk:first-child{margin-top:-16px}
 .dots{display:flex;justify-content:center;gap:14px;padding:8px 0;min-height:40px}
 .dots span{width:18px;height:18px;border-radius:999px;border:2px solid var(--blue)} .dots span.f{background:var(--blue)}
 .modal{position:fixed;inset:0;background:rgba(20,33,61,.45);display:flex;align-items:flex-end;justify-content:center;z-index:20}
+/* a window with a text box opens at the top of the screen: at the bottom the keyboard of the phone covers it (comment of 20/11) */
+.modal.top{align-items:flex-start;padding-top:var(--vvt,0px)} .modal.top .sheet{border-radius:0 0 16px 16px;padding-top:calc(16px + env(safe-area-inset-top));max-height:calc(var(--vvh,100vh) - 8px)}
+.modal.top textarea.in{min-height:96px}
 .modal .sheet{background:#fff;width:100%;max-width:560px;border-radius:16px 16px 0 0;padding:16px;display:flex;flex-direction:column;gap:12px;max-height:90vh;overflow:auto}
 .chips{display:flex;flex-wrap:wrap;gap:6px} .chips .btn{min-height:44px;font-size:15px}
 .ver{font-size:13px;color:var(--muted);text-align:center;padding:8px}
@@ -354,6 +357,9 @@ function drawModal() {
   if (S.modal && !had) { var af = box.querySelector('[data-focus]'); if (af) { try { af.focus({ preventScroll: true }); } catch (e) {} } }
 }
 function openModal(fn) { S.modal = fn; drawModal(); }
+/* the part of the screen that is really visible (the keyboard takes the rest): the window fits inside it */
+function vvSet() { var v = window.visualViewport; if (!v) return; document.documentElement.style.setProperty('--vvh', Math.round(v.height) + 'px'); document.documentElement.style.setProperty('--vvt', Math.round(v.offsetTop) + 'px'); }
+if (window.visualViewport) { window.visualViewport.addEventListener('resize', vvSet); window.visualViewport.addEventListener('scroll', vvSet); vvSet(); }
 function closeModal() { S.modal = null; drawModal(); if (S.waiting) render(); }
 var NAV = { today: 'today', people: 'people', menu: 'today', before: 'today', after: 'today', week: 'week', startweek: 'week', endweek: 'week', deliveries: 'week', note: 'week', overview: 'overview', settings: 'settings' };
 function go(scr) { peopleFlush(); if (scr === 'settings') S.setSec = ''; S.scr = scr; S.f = {}; S.msg = ''; S.notice = ''; S.good = ''; enter(scr); render(); }
@@ -546,8 +552,16 @@ SCREENS.people = function () {
 /* ---------- daily: the food of the whole day ---------- */
 /* is there still a meal to count today (not finished, not marked "not counted")? */
 function peopleOpen() { var db = view(); return countMeals().some(function (m) { var p = eatGet(db, 'people', S.sess.centre, S.date, m); return !(p && (p.data.done || p.data.skip)); }); }
+/* a step of the day marked as not done (menu, before, after). Filling the step in later takes the mark away */
+var SKIPTXT = { menu: ['I didn\'t write the menu', 'Menu not written'], before: ['I didn\'t count the quantities', 'Quantities not counted'], after: ['I didn\'t count the leftovers', 'Leftovers not counted'] };
+function daySkip() { var e = eatGet(view(), 'dskip', S.sess.centre, S.date, ''); return e ? e.data : {}; }
+function stepSkipped(step) { var e = eatGet(view(), 'dskip', S.sess.centre, S.date, ''); return e && e.data[step] ? e : null; }
+function setStepSkip(step, on) { var d = daySkip(), nd = { on: !!d.on, menu: !!d.menu, before: !!d.before, after: !!d.after }; if (nd[step] === on) return; nd[step] = on; saveEntry('dskip', '', nd); }
+/* on the page of a step: the note that it was marked, or at the bottom, in red, the button to mark it */
+function skipNote(step) { var e = stepSkipped(step); return e ? '<div class="box em" role="status">' + SKIPTXT[step][1] + (e.byName ? ' (' + esc(e.byName) + ')' : '') + '. Write it here to add it.</div>' : ''; }
+function skipBtn(step) { return stepSkipped(step) ? '' : '<button class="btn red" data-a="stepSkip" data-s="' + step + '">' + SKIPTXT[step][0] + '</button>'; }
 function stepBtn(n, title, sub, to, cls) {
-  return '<button class="step" data-a="go" data-to="' + to + '"><span class="dot ' + cls + '">' + (cls === 'ok' ? ic('check') : n) + '</span><span style="flex:1 1 auto;display:flex;flex-direction:column"><span class="b">' + title + '</span><span class="m s">' + sub + '</span></span>' + ic('next') + '</button>';
+  return '<button class="step" data-a="go" data-to="' + to + '"><span class="dot ' + cls + '">' + (cls === 'ok' ? ic('check') : (cls === 'skip' ? '–' : n)) + '</span><span style="flex:1 1 auto;display:flex;flex-direction:column"><span class="b">' + title + '</span><span class="m s">' + sub + '</span></span>' + ic('next') + '</button>';
 }
 /* one meal of a menu in words */
 function menuText(db, mn, meal) {
@@ -575,16 +589,17 @@ SCREENS.today = function () {
   var b = eatGet(db, 'dbefore', c, d, ''), a = eatGet(db, 'dafter', c, d, ''), sk = eatGet(db, 'dskip', c, d, '');
   var out = dayBar() + '<span class="m b">' + esc(centreName(c)) + '</span>';
   /* the work of the day in steps: 1 menu, 2 quantities, 3 count of the people, 4 leftovers (where they are counted) */
-  var ready = (sk && sk.data.on) || (dm.saved && b), pes = countMeals().map(function (m) { return eatGet(db, 'people', c, d, m); });
+  var skd = sk ? sk.data : {}, noMenu = !dm.saved && skd.menu, noBefore = !b && skd.before, noAfter = !a && skd.after;
+  var ready = skd.on || ((dm.saved || noMenu) && (b || noBefore)), pes = countMeals().map(function (m) { return eatGet(db, 'people', c, d, m); });
   var allDone = pes.every(function (p) { return p && p.data.done; }), going = pes.some(function (p) { return p && !p.data.skip; }), anySkip = pes.some(function (p) { return p && p.data.skip; });
   var pl = 0; pes.forEach(function (p) { if (p && !p.data.skip) pl += eatPlates(p); });
-  var pStep = stepBtn('3', 'Count the people', allDone ? 'Finished: ' + plural(pl, 'plate', 'plates') : (going ? 'Counting: ' + plural(pl, 'plate', 'plates') : (anySkip ? 'People not counted' : 'One tap for each plate')), 'people', allDone ? 'ok' : (going || ready ? 'em' : 'off'));
+  var pStep = stepBtn('3', 'Count the people', allDone ? 'Finished: ' + plural(pl, 'plate', 'plates') : (going ? 'Counting: ' + plural(pl, 'plate', 'plates') : (anySkip ? 'People not counted' : 'One tap for each plate')), 'people', allDone ? 'ok' : (going || ready ? (anySkip && !going ? 'skip' : 'em') : (anySkip ? 'skip' : 'off')));
   if (sk && sk.data.on) out += '<div class="box em">Food not counted on ' + dayName(d) + '. People are counted.</div><button class="btn" data-a="skip" data-on="0">Undo</button>' + pStep;
   else out += '<div style="display:flex;flex-direction:column;gap:8px">' +
-    stepBtn('1', 'What do we eat today?', esc(dayMenuText(db, dm)) + (dm.saved ? '' : ' (plan)') + (dm.cook ? ' · Cook: ' + esc(dm.cook) : ''), 'menu', dm.saved ? 'ok' : 'em') +
-    stepBtn('2', 'Quantities for today', b ? esc(qtyLine(db, b.data.q, b.data.u)) : 'Food taken out of the store and the cold room for the meals of today', 'before', b ? 'ok' : (dm.saved ? 'em' : 'off')) +
+    stepBtn('1', 'What do we eat today?', noMenu ? 'Menu not written. It can still be added.' : esc(dayMenuText(db, dm)) + (dm.saved ? '' : ' (plan)') + (dm.cook ? ' · Cook: ' + esc(dm.cook) : ''), 'menu', dm.saved ? 'ok' : (noMenu ? 'skip' : 'em')) +
+    stepBtn('2', 'Quantities for today', b ? esc(qtyLine(db, b.data.q, b.data.u)) : (noBefore ? 'Quantities not counted. They can still be added.' : 'Food taken out of the store and the cold room for the meals of today'), 'before', b ? 'ok' : (noBefore ? 'skip' : (dm.saved || noMenu ? 'em' : 'off'))) +
     pStep +
-    (left ? stepBtn('4', 'Leftovers', a ? 'Saved' : 'After the count: what is left at the end of the day', 'after', a ? 'ok' : (b ? 'em' : 'off')) : '') +
+    (left ? stepBtn('4', 'Leftovers', a ? 'Saved' : (noAfter ? 'Leftovers not counted. They can still be added.' : 'After the count: what is left at the end of the day'), 'after', a ? 'ok' : (noAfter ? 'skip' : (b ? 'em' : 'off'))) : '') +
     '</div>';
   /* the day: plates and the amount a plate */
   var u = eatDayUse(db, c, d), rows = '';
@@ -592,8 +607,6 @@ SCREENS.today = function () {
   out += '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">' + dayName(d) + '</span>' +
     '<div class="row"><span>Plates</span><span class="b num">' + (u.plates == null ? '<span class="pill warn">People: to do</span>' : u.plates + (u.peopleMissing ? ' <span class="m s">(' + plural(u.peopleMissing, 'meal', 'meals') + ' not counted)</span>' : '')) + '</span></div>' + rows +
     (!rows && !u.skipped ? '<span class="m s" style="padding-top:6px">' + (u.hasBefore ? (u.closed ? 'Count the people to see the amount a plate.' : 'After the leftovers: the amount a plate.') : 'After the quantities for today: the amount a plate.') + '</span>' : '') + '</div>';
-  /* at the bottom of the page, in red */
-  if (!(sk && sk.data.on)) out += '<button class="btn red" data-a="skip" data-on="1">I didn\'t count the food</button>';
   return out;
 };
 function notesOfWeek(db, c, d) { var mon = eatMonday(d); return eatNotes(db, mon, eatAddDays(mon, 6), c); }
@@ -627,7 +640,7 @@ SCREENS.menu = function () {
     (cooks.length ? '<div class="chips">' + cooks.map(function (n) { var on = f.cook === n; return '<button class="btn' + (on ? ' on' : '') + '" data-a="cook" data-n="' + esc(n) + '" aria-pressed="' + on + '">' + esc(n) + '</button>'; }).join('') + '</div>' : '') +
     '<label for="ck" class="lab">' + (cooks.length ? 'Or write the name' : 'Name of the cook') + '</label><input id="ck" class="in" type="text" data-f="cook" value="' + esc(f.cook || '') + '"></div>';
   var both = sameDinner(f.meals);
-  return backLink() + '<h1>What do we eat today?</h1>' + dayTitle() + cookCard + centreMeals().map(function (m) {
+  return backLink() + '<h1>What do we eat today?</h1>' + dayTitle() + skipNote('menu') + cookCard + centreMeals().map(function (m) {
     var x = f.meals[m];
     if (both && m === 'Dinner') return '';
     if (m === 'Breakfast') return '<div class="card"><span class="b" style="font-size:18px">Breakfast</span><div class="seg" style="grid-template-columns:repeat(2,minmax(0,1fr))">' +
@@ -638,7 +651,7 @@ SCREENS.menu = function () {
       '<button class="btn' + (x.mm ? ' on' : '') + '" data-a="mmm" data-m="' + m + '" aria-pressed="' + !!x.mm + '">Nshima</button>' +
       '<span class="lab">Relish</span><div class="seg" style="grid-template-columns:repeat(2,minmax(0,1fr))">' + relish.map(function (it) { var on = x.relish.indexOf(it.id) >= 0; return '<button class="btn' + (on ? ' on' : '') + '" data-a="rel" data-m="' + m + '" data-id="' + it.id + '" aria-pressed="' + on + '">' + esc(it.name) + '</button>'; }).join('') + '</div>' +
       '<label for="veg_' + m + '" class="lab">Vegetable</label><input id="veg_' + m + '" class="in" type="text" data-mv="' + m + '" data-k="veg" value="' + esc(x.veg) + '"></div>';
-  }).join('') + '<button class="btn pri big" data-a="saveMenu">Next: quantities for today</button>';
+  }).join('') + '<button class="btn pri big" data-a="saveMenu">Next: quantities for today</button>' + skipBtn('menu');
 };
 function foodRowsHtml(f, after) {
   var db = view(), out = '';
@@ -652,18 +665,18 @@ function foodRowsHtml(f, after) {
 }
 SCREENS.before = function () {
   var db = view(), f = S.f, more = db.items.filter(function (it) { return f.rows.indexOf(it.id) < 0; });
-  return backLink() + '<h1>Quantities for today</h1>' + dayTitle() + '<div class="box info">Write the food taken out of the store and the cold room for the meals of today, in kg, bags or trays. A half or a quarter: tap ½ or ¼, or write 0.5 or 0.25.</div>' +
+  return backLink() + '<h1>Quantities for today</h1>' + dayTitle() + skipNote('before') + '<div class="box info">Write the food taken out of the store and the cold room for the meals of today, in kg, bags or trays. A half or a quarter: tap ½ or ¼, or write 0.5 or 0.25.</div>' +
     '<div class="card" style="gap:12px">' + (f.rows.length ? foodRowsHtml(f, false) : '<span class="m">No food on the menu.</span>') + '</div>' +
     (more.length ? '<div class="card"><span class="lab">Add another food</span><div class="chips">' + more.map(function (it) { return '<button class="btn" data-a="addRow" data-id="' + it.id + '">+ ' + esc(it.name) + '</button>'; }).join('') + '</div></div>' : '') +
-    '<button class="btn pri big" data-a="saveBefore">' + (peopleOpen() ? 'Save and count the people' : 'Save') + '</button>';
+    '<button class="btn pri big" data-a="saveBefore">' + (peopleOpen() ? 'Save and count the people' : 'Save') + '</button>' + skipBtn('before');
 };
 SCREENS.after = function () {
   var db = view(), b = eatGet(db, 'dbefore', S.sess.centre, S.date, '');
-  if (!b) return backLink() + '<h1>Leftovers</h1>' + dayTitle() + '<div class="card">First save the quantities for today.</div><button class="btn pri" data-a="go" data-to="before">Quantities for today</button>';
-  return backLink() + '<h1>Leftovers</h1>' + dayTitle() + '<div class="box info">What is left at the end of the day, after the last meal. A half or a quarter: tap ½ or ¼.</div>' +
+  if (!b) return backLink() + '<h1>Leftovers</h1>' + dayTitle() + skipNote('after') + '<div class="card">First save the quantities for today.</div><button class="btn pri" data-a="go" data-to="before">Quantities for today</button>' + skipBtn('after');
+  return backLink() + '<h1>Leftovers</h1>' + dayTitle() + skipNote('after') + '<div class="box info">What is left at the end of the day, after the last meal. A half or a quarter: tap ½ or ¼.</div>' +
     '<div class="card" style="gap:12px">' + foodRowsHtml(S.f, true) + '</div>' +
     '<div class="card" style="gap:4px" id="bal">' + balanceHtml() + '</div>' +
-    '<button class="btn pri big" data-a="saveAfter">Save</button>';
+    '<button class="btn pri big" data-a="saveAfter">Save</button>' + skipBtn('after');
 };
 /* the balance of the day while the leftovers are written */
 function balanceHtml() {
@@ -1007,12 +1020,12 @@ SCREENS.settings = function () {
 
 /* ---------- comment and PIN windows ---------- */
 function commentModal() {
-  return '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="cmt"><div class="sheet"><h2 id="cmt">Comment on this screen</h2><label for="ct" class="lab">Your comment</label><textarea id="ct" class="in" data-f="ct" data-focus>' + esc(S.f.ct || '') + '</textarea>' +
+  return '<div class="modal top" role="dialog" aria-modal="true" aria-labelledby="cmt"><div class="sheet"><h2 id="cmt">Comment on this screen</h2><label for="ct" class="lab">Your comment</label><textarea id="ct" class="in" data-f="ct" data-focus>' + esc(S.f.ct || '') + '</textarea>' +
     (S.sess && S.sess.mode === 'admin' ? '<label for="cn" class="lab">Your name</label><input id="cn" class="in" data-f="cn" value="' + esc(S.f.cn || KV.get('cname', '')) + '">' : '') +
     '<div style="display:flex;gap:8px"><button class="btn" data-a="modalClose" style="flex:1 1 0">Cancel</button><button class="btn pri" data-a="commentSave" style="flex:2 1 0">Save the comment</button></div></div></div>';
 }
 function pinModal() {
-  return '<div class="modal" role="dialog" aria-modal="true" aria-labelledby="pt"><div class="sheet"><h2 id="pt">' + ({ entry: 'New data entry PIN', admin: 'New overview PIN', delivery: 'Deliveries PIN' }[S.f.which]) + '</h2>' +
+  return '<div class="modal top" role="dialog" aria-modal="true" aria-labelledby="pt"><div class="sheet"><h2 id="pt">' + ({ entry: 'New data entry PIN', admin: 'New overview PIN', delivery: 'Deliveries PIN' }[S.f.which]) + '</h2>' +
     '<label for="np1" class="lab">New PIN (4 numbers)</label><input id="np1" class="in" type="password" inputmode="numeric" maxlength="4" autocomplete="off" data-f="np1" value="' + esc(S.f.np1 || '') + '" data-focus>' +
     '<label for="np2" class="lab">New PIN again</label><input id="np2" class="in" type="password" inputmode="numeric" maxlength="4" autocomplete="off" data-f="np2" value="' + esc(S.f.np2 || '') + '">' +
     (S.msg ? '<div class="box em">' + esc(S.msg) + '</div>' : '') +
@@ -1222,6 +1235,7 @@ A.addOk = function () { var k = Math.round(Number(S.f.an)); if (isFinite(k) && k
 A.undo = function () { var h = S.f.hist.length ? S.f.hist.pop() : { g: S.f.grp || '', k: 1 }; var keep = S.f.grp; S.f.grp = h.g; setCount(Math.max(0, curCount() - h.k)); peopleChanged(0); S.f.grp = keep; S.keepScroll = true; render(); };
 A.typing = function () { S.f.typing = true; S.keepScroll = true; render(); };
 A.typeOk = function () { var n = Math.round(Number(S.f.tn)); if (isFinite(n) && n >= 0) { S.f.hist = []; setCount(n); peopleChanged(0); } S.f.typing = false; S.keepScroll = true; render(); };
+A.stepSkip = function (el) { var st = el.getAttribute('data-s'); if (!SKIPTXT[st]) return; setStepSkip(st, true); S.notice = ''; go('today'); S.good = SKIPTXT[st][1] + ' on ' + dayName(S.date) + '. It can still be added later.'; render(); };
 A.skip = function (el) { saveEntry('dskip', '', { on: el.getAttribute('data-on') === '1' }); S.keepScroll = true; render(); };
 A.bfm = function (el) { var x = S.f.meals.Breakfast, v = el.getAttribute('data-v'); x.mm = v === 'mm'; x.isOther = v === 'other'; S.keepScroll = true; render(); };
 A.cook = function (el) { var n = el.getAttribute('data-n'); S.f.cook = S.f.cook === n ? '' : n; S.keepScroll = true; render(); };
@@ -1243,7 +1257,7 @@ A.saveMenu = function () {
   }
   /* dinner is not asked: it is the same as lunch */
   if (ms.Lunch && ms.Dinner) ms.Dinner = { mm: ms.Lunch.mm, relish: ms.Lunch.relish.slice(), veg: ms.Lunch.veg };
-  saveEntry('dmenu', '', { meals: ms, cook: (f.cook || '').trim() }); go('before');
+  saveEntry('dmenu', '', { meals: ms, cook: (f.cook || '').trim() }); setStepSkip('menu', false); go('before');
 };
 A.unit = function (el) { var k = el.getAttribute('data-k'); S.f.u[k] = el.getAttribute('data-v'); S.keepScroll = true; render(); };
 A.nc = function (el) {
@@ -1283,13 +1297,13 @@ A.saveBefore = function () {
   var d = qData(); S.f.rows.forEach(function (id) { if (!(id in d.q)) d.q[id] = null; });
   if (S.f.rows.indexOf('chk') >= 0 && !('pcs' in d.q)) d.q.pcs = null;
   d.u = S.f.u || {};
-  var toPeople = peopleOpen(); saveEntry('dbefore', '', d); S.notice = ''; go(toPeople ? 'people' : 'today');
+  var toPeople = peopleOpen(); saveEntry('dbefore', '', d); setStepSkip('before', false); S.notice = ''; go(toPeople ? 'people' : 'today');
 };
 A.saveAfter = function () {
   var d = qData(); S.f.rows.forEach(function (id) { if (!(id in d.q) || d.q[id] == null) d.q[id] = S.f.nc[id] ? null : (eatNum(S.f.q[id]) || 0); });
   if (S.f.rows.indexOf('chk') >= 0 && !S.f.nc.pcs && d.q.pcs == null) d.q.pcs = 0;
   d.u = S.f.u || {};
-  saveEntry('dafter', '', d); go('today');
+  saveEntry('dafter', '', d); setStepSkip('after', false); go('today');
 };
 function queueNote(centre, date, data) { queue({ kind: 'entry', e: { type: 'note', centre: centre, date: date, meal: '', data: data, by: S.sess.nid || '', byName: myName() || 'Overview', at: nowIso() } }); }
 A.noteNew = function () { S.noteNo = ''; go('note'); };

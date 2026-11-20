@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.19';
+var EAT_VERSION = 'alpha 0.20';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 /* the meals a centre can have now (20/11: breakfast is left out for now; old breakfast counts are still read) */
 var EAT_MEALS_ON = ['Lunch', 'Dinner'];
@@ -218,7 +218,8 @@ function eatDayUse(db, centre, date) {
   var sk = eatGet(db, 'dskip', centre, date, '');
   if (sk && sk.data.on) { out.skipped = true; return out; }
   var b = eatGet(db, 'dbefore', centre, date, ''), a = eatGet(db, 'dafter', centre, date, ''), left = eatLeft(db, centre);
-  if (!b) return out;
+  if (!b) { if (sk && sk.data.before) out.skipped = true; return out; }
+  if (sk && sk.data.after && left && !a) out.afterSkipped = true;
   out.hasBefore = true; out.hasAfter = !!a; out.closed = !!a || !left;
   if (!left) a = null;
   var bq = b.data.q || {}, bnc = b.data.nc || {}, bu = b.data.u || {}, aq = a ? (a.data.q || {}) : {}, anc = a ? (a.data.nc || {}) : {}, au = a ? (a.data.u || {}) : {};
@@ -546,7 +547,9 @@ function eatClean(db, type, d) {
   if (type === 'menu') { var r = []; for (var i = 0; i < (d.relish || []).length; i++) { var it = eatItem(db, d.relish[i]); if (it && it.relish && r.indexOf(it.id) < 0) r.push(it.id); } var br = !!d.bread && !!eatItem(db, 'brd'); return { mm: !!d.mm, bread: br, relish: r, veg: eatText(d.veg, 60) }; }
   function us(u) { var o = {}; if (!u) return o; for (var id in u) { var it = eatItem(db, id); if (it && it.unit !== it.use && (u[id] === 'unit' || u[id] === 'use')) o[id] = u[id]; } return o; }
   if (type === 'before' || type === 'after') { var o = { q: qs(d.q), nc: ncs(d.nc), u: us(d.u) }; if (type === 'after') { o.kept = eatNum(d.kept); o.keptNc = !!d.keptNc; } return o; }
-  if (type === 'skip' || type === 'dskip') return { on: !!d.on };
+  /* on: the food of the whole day not counted (old button). menu, before, after: that step alone is marked as not done,
+     and anyone can still fill it in later; a step that is filled in counts, whatever the mark says */
+  if (type === 'skip' || type === 'dskip') { var so = { on: !!d.on }; if (type === 'dskip') { if (d.menu) so.menu = true; if (d.before) so.before = true; if (d.after) so.after = true; } return so; }
   if (type === 'dbefore' || type === 'dafter') return { q: qs(d.q), nc: ncs(d.nc), u: us(d.u) };
   if (type === 'dmenu') {
     var ms = {}, src = d.meals || {};

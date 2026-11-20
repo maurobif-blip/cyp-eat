@@ -1,5 +1,5 @@
 /* CYP EAT: keeps the app on the phone so it opens without internet. VERSION changes at every update. */
-var VERSION = 'cyp-eat-alpha-0.19-eed16483';
+var VERSION = 'cyp-eat-alpha-0.20-47243d17';
 var FILES = ['./', 'index.html', 'core.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-48.png'];
 self.addEventListener('install', function (e) { e.waitUntil(caches.open(VERSION).then(function (c) { return c.addAll(FILES.map(function (f) { return new Request(f, { cache: 'reload' }); })); }).then(function () { return self.skipWaiting(); })); });
 self.addEventListener('activate', function (e) { e.waitUntil(caches.keys().then(function (keys) { return Promise.all(keys.filter(function (k) { return k !== VERSION; }).map(function (k) { return caches.delete(k); })); }).then(function () { return self.clients.claim(); })); });
