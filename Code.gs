@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.9';
+var EAT_VERSION = 'alpha 0.10';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 var EAT_ROLES = ['Volunteer', 'Canteen', 'Educator'];
 /* three accesses: entry (people and food), delivery (photos of the delivery notes), admin (overview) */
@@ -230,8 +230,9 @@ function eatStock(db, centre, upTo, atStart) {
   }
   for (i = 0; i < db.entries.length; i++) {
     e = db.entries[i];
-    if (e.del || e.centre !== centre || e.date < first || e.date > lastDay) continue;
-    if (e.type === 'received' || (e.type === 'note' && !e.data.off)) for (var id in e.data.q) if (out[id] && e.data.q[id] != null) out[id].inn += e.data.q[id];
+    if (e.del || e.date < first || e.date > lastDay) continue;
+    var id, nq = e.type === 'received' && e.centre === centre ? e.data.q : (e.type === 'note' && !e.data.off && eatNoteHas(e, centre) ? eatNoteQ(e, centre) : null);
+    if (nq) for (id in nq) if (out[id] && nq[id] != null) out[id].inn += nq[id];
   }
   for (var d = first, guard = 0; d <= lastDay && guard < 400; d = eatAddDays(d, 1), guard++) {
     var uses = eatUsesOfDay(db, centre, d);
@@ -268,11 +269,26 @@ function eatNoteUntil(e) { var n = e && e.data ? e.data.days : null; return n ? 
 function eatNoteNo(x) { var t = String(x == null ? '' : x).replace(/\D/g, ''); return t.length >= 1 && t.length <= 8 ? String(Number(t)) : ''; }
 function eatNote(db, no) { no = eatNoteNo(no); return no ? eatIndex(db)['note|' + no] || null : null; }
 /* notes with a date from..to (both included), not removed, by date then number */
+/* A note can say that a part is for another place ("02 chickens for Chinika House"): data.parts = [{ to, name, q }].
+   The quantities on the note are the whole delivery; the part is taken off the note's centre and counted for the other place. */
+function eatNoteHas(e, centre) {
+  if (e.centre === centre) return true;
+  var ps = (e.data || {}).parts || []; for (var i = 0; i < ps.length; i++) if (ps[i].to === centre) return true;
+  return false;
+}
+function eatNoteQ(e, centre) {
+  var q = {}, ps = (e.data || {}).parts || [], id, i;
+  if (e.centre === centre) {
+    for (id in e.data.q) q[id] = e.data.q[id];
+    for (i = 0; i < ps.length; i++) for (id in ps[i].q) if (q[id] != null) q[id] = Math.max(0, Math.round((q[id] - ps[i].q[id]) * 1000) / 1000);
+  } else for (i = 0; i < ps.length; i++) if (ps[i].to === centre) for (id in ps[i].q) q[id] = (q[id] || 0) + ps[i].q[id];
+  return q;
+}
 function eatNotes(db, from, to, centre) {
   var out = [];
   for (var i = 0; i < db.entries.length; i++) {
     var e = db.entries[i];
-    if (e.del || e.type !== 'note' || e.data.off || e.date < from || e.date > to || (centre && e.centre !== centre)) continue;
+    if (e.del || e.type !== 'note' || e.data.off || e.date < from || e.date > to || (centre && !eatNoteHas(e, centre))) continue;
     out.push(e);
   }
   return out.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : Number(a.data.no) - Number(b.data.no); });
@@ -422,7 +438,13 @@ function eatClean(db, type, d) {
   }
   if (type === 'received') return { q: qs(d.q) };
   if (type === 'endweek' || type === 'startweek') return { q: qs(d.q), nc: ncs(d.nc) };
-  if (type === 'note') { var nq = qs(d.q), q2 = {}; for (var k2 in nq) if (k2 !== 'pcs' && nq[k2] != null && nq[k2] > 0) q2[k2] = nq[k2]; var dy = Math.round(Number(d.days)); return { no: eatNoteNo(d.no), q: q2, days: isFinite(dy) && dy >= 1 && dy <= 60 ? dy : null, remark: eatText(d.remark, 200), recv: eatText(d.recv, 60), off: !!d.off, photo: /^[A-Za-z0-9_\-]{10,80}$/.test(String(d.photo || '')) ? String(d.photo) : '' }; }
+  if (type === 'note') { var nq = qs(d.q), q2 = {}; for (var k2 in nq) if (k2 !== 'pcs' && nq[k2] != null && nq[k2] > 0) q2[k2] = nq[k2]; var dy = Math.round(Number(d.days)); var parts = [], psrc = d.parts || [];
+    for (var pi = 0; pi < psrc.length && parts.length < 4; pi++) {
+      var pp = psrc[pi] || {}, pq = qs(pp.q), pq2 = {}, pany = false, pto = eatCentre(db, pp.to) ? String(pp.to) : '', pname = eatText(pp.name, 60) || (pto ? eatCentre(db, pto).name : '');
+      for (var pk in pq) if (q2[pk] && pq[pk] > 0) { pq2[pk] = Math.min(pq[pk], q2[pk]); pany = true; }
+      if (pany && pname) parts.push({ to: pto, name: pname, q: pq2 });
+    }
+    var nd = { no: eatNoteNo(d.no), q: q2, days: isFinite(dy) && dy >= 1 && dy <= 60 ? dy : null, remark: eatText(d.remark, 200), recv: eatText(d.recv, 60), off: !!d.off, photo: /^[A-Za-z0-9_\-]{10,80}$/.test(String(d.photo || '')) ? String(d.photo) : '' }; if (parts.length) nd.parts = parts; return nd; }
   return {};
 }
 
@@ -481,7 +503,7 @@ function eatHandle(req, store) {
   }
   if (dirty) store.save(db, info);
   var since = Number(req.since) || 0, out = pub();
-  out.ok = true; out.results = results; out.rev = db.rev; out.now = now; out.full = since === 0; out.reader = !!(store.readerOn && store.readerOn());
+  out.ok = true; out.results = results; out.rev = db.rev; out.now = now; out.full = since === 0; out.reader = !!(store.readerOn && store.readerOn()); if (mode === 'admin' && store.backupInfo) out.backup = store.backupInfo();
   out.entries = [];
   for (i = 0; i < db.entries.length; i++) if (db.entries[i].rev > since) out.entries.push(db.entries[i]);
   out.comments = [];
@@ -548,6 +570,7 @@ function details_(db, e) {
     var unit = e.type === 'received' || e.type === 'endweek' || e.type === 'startweek' || e.type === 'note' || (d.u && d.u[id] === 'unit') ? it.unit : it.use;
     parts.push(it.name + ' ' + (nc[id] || q[id] == null ? 'not counted' : q[id] + ' ' + unit));
   }
+  if (e.type === 'note') (d.parts || []).forEach(function (pt) { var w = []; for (var k in pt.q) { var pit = eatItem(db, k); if (pit) w.push(pt.q[k] + ' ' + pit.unit + ' of ' + pit.name.toLowerCase()); } parts.push('Of which for ' + pt.name + ': ' + w.join(', ')); });
   if (e.type === 'note' && d.days) parts.push('Should last ' + d.days + (d.days === 1 ? ' day' : ' days'));
   if (e.type === 'after' && (d.kept != null || d.keptNc)) parts.push('Meals kept for later: ' + (d.keptNc ? 'not counted' : d.kept));
   return parts.join('; ');
@@ -586,6 +609,7 @@ function store_() {
     readerOn: readerOn_,
     setReaderKey: function (v) { if (v) props_().setProperty('geminiKey', v); else props_().deleteProperty('geminiKey'); },
     read: readNote_,
+    backupInfo: backupInfo_,
     save: function (db, info) {
       var text = JSON.stringify(db), id = P.getProperty('dbId'), f = folder_();
       if (id) DriveApp.getFileById(id).setContent(text); else P.setProperty('dbId', f.createFile(DB_FILE, text, 'application/json').getId());
@@ -608,7 +632,10 @@ function readerPrompt_(db) {
     'The photo often shows the booklet open, with two notes side by side: read every note in the photo. ' +
     'Return only this JSON: {"notes": [{"readable": true or false, "note_number": "the digits of the red number, or empty", "date": "YYYY-MM-DD, or empty", ' +
     '"place": "the place the food goes to (after M/s): one of ' + places + ', or the name as written", "items": [{"item": "item id", "quantity": number}], ' +
+    '"for_others": [{"place": "the other place", "items": [{"item": "item id", "quantity": number}]}], ' +
     '"received_by": "the name, or empty", "remark": "anything else written, short"}]}. ' +
+    '"for_others": only when the note says that a part of the food is for another place, for example "02 chickens for Chinika House" written or circled on a note for Minsundu: ' +
+    'then "items" keeps the whole quantity of the line (26 chickens) and "for_others" has the part (2 chickens for Chinika House). Otherwise leave it empty. ' +
     'Item ids: ' + items + '. Give each quantity in the unit in brackets: mealie meal in bags (packs or bags of mealie meal are bags), eggs in trays, chickens as whole chickens, pork and fish in kg. ' +
     'Halves and quarters as 0.5 and 0.25. Dates are written day/month/year; the year is 20' + new Date().getFullYear().toString().slice(2) + ' if not written. ' +
     'If a note is empty, cut, or its number or quantities cannot be read, set its "readable" to false. If the photo shows no delivery note, return {"notes": []}.';
@@ -635,16 +662,46 @@ function readNote_(img, db) {
   if (!best) return { ok: false, error: 'reader', detail: last, photo: file.getId() };
   return { ok: true, photo: file.getId(), reads: best.notes, read: best.notes[0] || { clear: false, no: '', date: '', centre: '', q: {} }, model: best.model };
 }
-function readOne_(r, db) {
-  var place = String(r.place || '').toLowerCase().trim(), centre = '';
+function placeId_(text, db) {
+  var place = String(text || '').toLowerCase().trim(), centre = '';
   eatPlaces(db).forEach(function (c) { var n = c.name.toLowerCase(); if (!centre && place && (n === place || n.indexOf(place) >= 0 || place.indexOf(n.split(' /')[0]) >= 0)) centre = c.id; });
   /* Holy Family's meals are cooked at Luigi: its notes go to Luigi */
   if (!centre && /holy family/.test(place)) eatPlaces(db).forEach(function (c) { if (!centre && (c.groups || []).some(function (g) { return /holy family/i.test(g); })) centre = c.id; });
-  var q = {}; (r.items || []).forEach(function (x) { var it = eatItem(db, String(x.item || '')); var n = eatNum(x.quantity); if (it && n) q[it.id] = (q[it.id] || 0) + n; });
-  return { clear: r.readable !== false, no: eatNoteNo(r.note_number), date: eatIsDate(r.date) ? r.date : '', centre: centre, placeText: eatText(r.place, 60), q: q, recv: eatText(r.received_by, 60), remark: eatText(r.remark, 200) };
+  return centre;
+}
+function readItems_(list, db) { var q = {}; (list || []).forEach(function (x) { var it = eatItem(db, String(x.item || '')); var n = eatNum(x.quantity); if (it && n) q[it.id] = (q[it.id] || 0) + n; }); return q; }
+function readOne_(r, db) {
+  var centre = placeId_(r.place, db), q = readItems_(r.items, db), parts = [];
+  /* a part for another place: only for items on the note, and not more than the note has */
+  (r.for_others || []).forEach(function (o) {
+    var pq = readItems_(o.items, db), ok = {}, any = false, to = placeId_(o.place, db), name = eatText(o.place, 60);
+    for (var id in pq) if (q[id]) { ok[id] = Math.min(pq[id], q[id]); any = true; }
+    if (any && name && to !== centre) parts.push({ to: to, name: to ? eatCentre(db, to).name : name, q: ok });
+  });
+  return { clear: r.readable !== false, no: eatNoteNo(r.note_number), date: eatIsDate(r.date) ? r.date : '', centre: centre, placeText: eatText(r.place, 60), q: q, parts: parts, recv: eatText(r.received_by, 60), remark: eatText(r.remark, 200) };
 }
 /* Run once from the editor after this update: Google asks Mauro to allow the photo reader (internet calls and the photo folder). */
 function authorize() { UrlFetchApp.fetch('https://generativelanguage.googleapis.com/', { muteHttpExceptions: true }); photoFolder_(); Logger.log('Done: the photo reader is allowed. The key is written in the app: Overview > Settings > Photo reader.'); }
+/* ===== the backup of every night: a copy of the database file in the folder "CYP EAT backups", at 2:00 (Ndola time) =====
+   installBackup() is run once from the editor; Google then runs nightlyBackup() by itself every night. */
+var BACKUP_DIR = 'CYP EAT backups';
+function backupFolder_() { var f = folder_(), it = f.getFoldersByName(BACKUP_DIR); return it.hasNext() ? it.next() : f.createFolder(BACKUP_DIR); }
+function nightlyBackup() {
+  var id = props_().getProperty('dbId'); if (!id) return;
+  var text = DriveApp.getFileById(id).getBlob().getDataAsString('UTF-8'), db = JSON.parse(text);
+  var name = 'cyp-eat-backup-' + Utilities.formatDate(new Date(), 'Africa/Lusaka', 'yyyy-MM-dd_HHmm') + '.json';
+  backupFolder_().createFile(name, text, 'application/json');
+  props_().setProperty('backupLast', new Date().toISOString());
+  Logger.log('Backup saved: ' + name + ' (' + db.entries.length + ' entries, ' + Math.round(text.length / 1024) + ' KB)');
+}
+function installBackup() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'nightlyBackup') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('nightlyBackup').timeBased().everyDays(1).atHour(2).nearMinute(0).inTimezone('Africa/Lusaka').create();
+  props_().setProperty('backupOn', '1');
+  nightlyBackup();
+  Logger.log('Done: a backup is saved every night at about 2:00 (Ndola time), in the folder "' + BACKUP_DIR + '". One was saved now.');
+}
+function backupInfo_() { return { on: props_().getProperty('backupOn') === '1', last: props_().getProperty('backupLast') || '' }; }
 function reply_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 function doPost(e) {
   var lock = null;
