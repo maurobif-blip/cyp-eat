@@ -444,14 +444,16 @@ SCREENS.pin = function () {
 };
 SCREENS.name = function () {
   var names = (view().names || []).filter(function (n) { return n.active; }).sort(function (a, b) { return a.name.localeCompare(b.name); });
+  var last = KV.get('me', {}).nid;
   return '<h1>Who are you?</h1>' + (names.length ? names.map(function (n) {
-    return '<button class="btn" data-a="pickName" data-id="' + esc(n.id) + '" style="justify-content:space-between;min-height:56px;text-align:left">' + esc(n.name) + '<span class="pill">' + esc(n.role) + '</span></button>';
+    return '<button class="btn" data-a="pickName" data-id="' + esc(n.id) + '" style="justify-content:space-between;min-height:56px;text-align:left"><span>' + esc(n.name) + (n.id === last ? ' <span class="pill ok">Last time</span>' : '') + '</span><span class="pill">' + esc(n.role) + '</span></button>';
   }).join('') : '<div class="card">No names yet. The overview adds them in Settings.</div>') +
     installCard() + '<button class="btn link" data-a="signout">Sign out</button>';
 };
 SCREENS.centre = function () {
-  return '<button class="btn link bk" data-a="go" data-to="name">' + ic('back') + 'Back</button><h1>Which centre?</h1><span class="m b">' + esc(S.sess.name) + '</span>' +
-    eatCanteens(view()).map(function (c) { return '<button class="btn big" data-a="pickCentre" data-id="' + c.id + '" style="justify-content:space-between">' + esc(c.name) + ic('next') + '</button>'; }).join('');
+  var me = KV.get('me', {}), lastC = me.nid === S.sess.nid ? me.centre : '';
+  return '<button class="btn link bk" data-a="go" data-to="name">' + ic('back') + 'Back</button><h1>Which centre are you counting for?</h1><span class="m b">' + esc(S.sess.name) + '</span>' +
+    eatCanteens(view()).map(function (c) { return '<button class="btn big" data-a="pickCentre" data-id="' + c.id + '" style="justify-content:space-between"><span>' + esc(c.name) + (c.id === lastC ? ' <span class="pill ok">Last time</span>' : '') + '</span>' + ic('next') + '</button>'; }).join('');
 };
 
 /* ---------- day bar ---------- */
@@ -1121,7 +1123,7 @@ A.key = function (el) {
   var mode = S.pinMode, st = (view().settings || {})[mode];
   if (!st || !st.salt) { S.msg = mode === 'delivery' && view().settings && view().settings.entry ? 'The overview has not set the deliveries PIN yet.' : 'Open CYP EAT once with internet.'; return render(); }
   var cred = credOf(st.salt, S.pin), pin = S.pin;
-  function enterAs() { S.verif[mode] = sha256('v:' + cred); KV.set('verif', S.verif); var me = mode === 'entry' ? KV.get('me', {}) : {}; if (me.nid && !eatFind(view().names, me.nid)) me = {}; S.sess = { mode: mode, cred: cred, nid: me.nid || '', name: mode === 'delivery' ? 'Deliveries' : (me.name || ''), centre: me.centre || '' }; KV.set('sess', S.sess); S.pin = ''; S.good = ''; startSession(); }
+  function enterAs() { S.verif[mode] = sha256('v:' + cred); KV.set('verif', S.verif); S.sess = { mode: mode, cred: cred, nid: '', name: mode === 'delivery' ? 'Deliveries' : '', centre: '' }; KV.set('sess', S.sess); S.pin = ''; S.good = ''; startSession(); }
   S.busy = true; render();
   post({ action: 'login', mode: mode, cred: cred }).then(function (res) {
     S.busy = false; S.online = true;
@@ -1134,7 +1136,7 @@ A.key = function (el) {
   });
 };
 function remember() { KV.set('sess', S.sess); KV.set('me', { nid: S.sess.nid, name: S.sess.name, centre: S.sess.centre }); }
-A.pickName = function (el) { var n = eatFind(view().names, el.getAttribute('data-id')); S.sess.nid = n.id; S.sess.name = n.name; remember(); S.scr = 'centre'; render(); };
+A.pickName = function (el) { var n = eatFind(view().names, el.getAttribute('data-id')); S.sess.nid = n.id; S.sess.name = n.name; S.sess.centre = ''; KV.set('sess', S.sess); S.scr = 'centre'; render(); };
 A.pickCentre = function (el) { S.sess.centre = el.getAttribute('data-id'); remember(); S.meal = defaultMeal(); go('people'); };
 A.who = function () { S.scr = 'name'; render(); };
 A.signout = function () { signOut(''); };
