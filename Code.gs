@@ -1,7 +1,9 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.15';
+var EAT_VERSION = 'alpha 0.16';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
+/* the meals a centre can have now (20/11: breakfast is left out for now; old breakfast counts are still read) */
+var EAT_MEALS_ON = ['Lunch', 'Dinner'];
 var EAT_ROLES = ['Volunteer', 'Canteen', 'Educator'];
 /* three accesses: entry (people and food), delivery (photos of the delivery notes), admin (overview) */
 var EAT_MODES = ['entry', 'delivery', 'admin'];
@@ -29,9 +31,10 @@ function eatDefaultItems() {
 }
 function eatDefaultCentres() {
   return [
-    { id: 'MIN', name: 'Minsundu', meals: ['Breakfast', 'Lunch', 'Dinner'], left: true },
+    /* fixed: a meal that always has the same number of plates and is not counted (dinner at Minsundu: 60) */
+    { id: 'MIN', name: 'Minsundu', meals: ['Lunch', 'Dinner'], left: true, fixed: { Dinner: 60 } },
     { id: 'LUI', name: 'Luigi', meals: ['Lunch'] },
-    { id: 'NKW', name: 'Nkwazi', meals: ['Lunch', 'Dinner'] },
+    { id: 'NKW', name: 'Nkwazi', meals: ['Lunch'] },
     { id: 'MCU', name: 'Mary Christine / Ukubalula', meals: ['Lunch'] }
   ];
 }
@@ -129,6 +132,8 @@ function eatPlaceMatch(db, text) {
   return best;
 }
 /* the plates of one meal: the centre's own, and the groups that eat food cooked there (Luigi cooks for Holy Family) */
+/* the fixed number of plates of a meal at a centre, or null when the meal is counted */
+function eatFixed(db, centre, meal) { var c = eatCentre(db, centre), n = c && c.fixed ? c.fixed[meal] : null; return c && c.meals.indexOf(meal) >= 0 && n > 0 ? n : null; }
 function eatPlates(p) { var t = p.data.n || 0, g = p.data.g || {}; for (var k in g) t += g[k] || 0; return t; }
 function eatCanteens(db) { var o = []; for (var i = 0; i < db.centres.length; i++) if (!db.centres[i].place && !db.centres[i].off) o.push(db.centres[i]); return o; }
 function eatPlaces(db) { var o = []; for (var i = 0; i < db.centres.length; i++) if (!db.centres[i].off) o.push(db.centres[i]); return o; }
@@ -205,7 +210,10 @@ function eatDayRows(db, centre, date) {
 function eatDayUse(db, centre, date) {
   var out = { day: true, skipped: false, hasBefore: false, hasAfter: false, closed: false, used: {}, usedU: {}, pieces: null, plates: null, base: null, peopleMissing: 0 };
   var c = eatCentre(db, centre), meals = c ? c.meals : [];
-  for (var i = 0; i < meals.length; i++) { var p = eatGet(db, 'people', centre, date, meals[i]); if (p) out.plates = (out.plates || 0) + eatPlates(p); else out.peopleMissing++; }
+  for (var i = 0; i < meals.length; i++) {
+    var fx = eatFixed(db, centre, meals[i]), p = fx == null ? eatGet(db, 'people', centre, date, meals[i]) : null;
+    if (fx != null) out.plates = (out.plates || 0) + fx; else if (p) out.plates = (out.plates || 0) + eatPlates(p); else out.peopleMissing++;
+  }
   out.base = out.plates;
   var sk = eatGet(db, 'dskip', centre, date, '');
   if (sk && sk.data.on) { out.skipped = true; return out; }
@@ -475,6 +483,18 @@ function eatApply(db, mode, op, nowIso, info) {
     var gs = []; for (i = 0; i < (op.groups || []).length && gs.length < 4; i++) { var gt = eatText(op.groups[i], 40); if (gt && gs.indexOf(gt) < 0 && gt !== cg.name) gs.push(gt); }
     cg.groups = gs; bump(cg);
     info.audit.push({ time: nowIso, who: 'Overview', action: 'Groups', detail: cg.name + ': ' + (gs.join(', ') || 'none') });
+    return { ok: true };
+  }
+  /* a meal with always the same number of plates (n), not counted; n empty or 0: the meal is counted again */
+  if (k === 'centre_fixed') {
+    var cf = eatCentre(db, op.cid); if (!cf) return { ok: false, error: 'id' };
+    if (EAT_MEALS.indexOf(op.meal) < 0) return { ok: false, error: 'meal' };
+    var fn = op.n == null || op.n === '' ? 0 : Math.round(Number(op.n));
+    if (!isFinite(fn) || fn < 0 || fn > 5000) return { ok: false, error: 'fields' };
+    var fxd = {}; for (var fk in (cf.fixed || {})) if (fk !== op.meal) fxd[fk] = cf.fixed[fk];
+    if (fn > 0) fxd[op.meal] = fn;
+    cf.fixed = fxd; bump(cf);
+    info.audit.push({ time: nowIso, who: 'Overview', action: 'Fixed plates', detail: cf.name + ', ' + op.meal + ': ' + (fn > 0 ? fn + ' plates every day, not counted' : 'counted') });
     return { ok: true };
   }
   if (k === 'centre_left') {
