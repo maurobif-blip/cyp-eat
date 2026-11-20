@@ -168,6 +168,7 @@ var IC = {
   week: '<path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/>',
   gear: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>',
   phone: '<rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/>',
+  gallery: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="m21 16-5-5-8 8"/>',
   camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
   sound: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M18.5 6.5a8 8 0 0 1 0 11"/>',
   truck: '<path d="M2 6h11v10H2z"/><path d="M13 9h5l3 4v3h-8"/><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',
@@ -207,9 +208,11 @@ function readLink() {
   try { history.replaceState(null, '', location.pathname + (S.cfg && !isStandalone() ? '?db=' + linkCode(S.cfg) : '')); } catch (e) {}
   setManifest();
 }
-function post(req) {
+function post(req, ms) {
   req.key = S.cfg.key;
-  return fetch(S.cfg.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(req), redirect: 'follow' }).then(function (r) { return r.json(); });
+  var p = fetch(S.cfg.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(req), redirect: 'follow' }).then(function (r) { return r.json(); });
+  if (!ms) return p;
+  return Promise.race([p, new Promise(function (ok, no) { setTimeout(function () { no(new Error('timeout')); }, ms); })]);
 }
 function saveServer() { KV.set('server', S.server); }
 function hello() {
@@ -699,9 +702,12 @@ function readSentence(db, r) {
   var its = []; db.items.forEach(function (it) { var n = r.q[it.id]; if (n) its.push(fmt(n) + ' ' + (n === 1 ? it.unit.replace(/s$/, '') : it.unit) + ' of ' + it.name.toLowerCase()); });
   return 'Delivery note ' + r.no + ', ' + dayName(r.date) + ', for ' + centreName(r.centre) + ': ' + listWords(its) + '.';
 }
+/* the camera, and a photo already taken (from the gallery) */
 function camButton(label, pri) {
   return '<label class="btn big ' + (pri ? 'pri' : '') + '" style="min-height:120px;font-size:22px;flex-direction:column;gap:8px" for="cam">' + ic('camera') + label + '</label>' +
-    '<input id="cam" type="file" accept="image/*" capture="environment" style="display:none" data-a-change="photo">';
+    '<input id="cam" type="file" accept="image/*" capture="environment" style="display:none" data-a-change="photo">' +
+    '<label class="btn" style="min-height:64px;font-size:18px" for="gal">' + ic('gallery') + 'Choose a photo from the gallery</label>' +
+    '<input id="gal" type="file" accept="image/*" style="display:none" data-a-change="photo">';
 }
 SCREENS.deliver = function () {
   var db = view(), v = S.dv || { step: 'start' }, t = todayStr();
@@ -710,15 +716,17 @@ SCREENS.deliver = function () {
   var photo = v.img ? '<img src="' + v.img + '" alt="The photo of the delivery note" style="width:100%;max-height:320px;object-fit:contain;border-radius:12px;background:#fff;border:1px solid var(--line)">' : '';
   if (v.step === 'reading') return '<h1>Reading the note…</h1>' + photo + '<div class="box info" role="status">Wait a few seconds.</div>';
   if (v.step === 'check') {
-    var r = v.read, other = eatNote(db, r.no);
-    return '<h1>Is this correct?</h1>' + photo +
+    var r = v.reads[v.i], other = eatNote(db, r.no);
+    return '<h1>Is this correct?</h1>' + (v.reads.length > 1 ? '<span class="pill" style="align-self:flex-start;font-size:16px">Note ' + (v.i + 1) + ' of ' + v.reads.length + ' in the picture</span>' : '') + photo +
       '<div class="card" style="font-size:22px;line-height:1.4"><span class="m s b">The picture says:</span><span class="b" id="said">' + esc(v.sentence) + '</span>' +
       (other ? '<span class="box em" style="font-size:16px">Note ' + esc(r.no) + ' is already saved (' + esc(centreName(other.centre)) + '). Yes replaces it.</span>' : '') +
       ('speechSynthesis' in window ? '<button class="btn" data-a="say">' + ic('sound') + 'Listen</button>' : '') + '</div>' +
       '<button class="btn big" style="min-height:72px;font-size:22px;background:var(--ok-ink);border-color:var(--ok-ink);color:#fff" data-a="dvYes">' + ic('check') + 'Yes, it is correct</button>' +
       camButton('No, take the picture again', false);
   }
-  if (v.step === 'saved') return '<div class="box ok" role="status" style="font-size:20px">Saved: delivery note ' + esc(v.no) + '. Thank you.</div>' + camButton('Take a picture of the next delivery note', true) + today;
+  if (v.step === 'saved') return '<div class="box ok" role="status" style="font-size:20px">Saved: delivery note' + (v.nos.length > 1 ? 's ' + esc(v.nos.join(' and ')) : ' ' + esc(v.nos[0])) + '. Thank you.</div>' +
+    (v.unclear ? '<div class="box em" style="font-size:18px">' + (v.unclear === 1 ? 'One more note in the picture could not be read' : v.unclear + ' more notes could not be read') + ': take a picture of it alone.</div>' : '') +
+    camButton('Take a picture of the next delivery note', true) + today;
   if (v.step === 'error') return '<h1>' + esc(v.title) + '</h1>' + photo + '<div class="box em" role="alert" style="font-size:18px">' + esc(v.msg) + '</div>' +
     (v.retry ? '<button class="btn pri big" data-a="dvRetry">Try again</button>' : '') + camButton('Take the picture again', !v.retry) + today;
   return '<h1>Delivery notes</h1><span style="font-size:18px">Take a picture of each delivery note, flat, with the whole note in the picture.</span>' + camButton('Take a picture of the delivery note', true) + today;
@@ -728,7 +736,7 @@ function dvRead() {
   var v = S.dv;
   if (!navigator.onLine) return dvError('No internet', 'The picture is read on the internet. Try again when there is internet.', true);
   S.dv.step = 'reading'; render();
-  post({ action: 'read', mode: S.sess.mode, cred: S.sess.cred, image: v.data }).then(function (res) {
+  post({ action: 'read', mode: S.sess.mode, cred: S.sess.cred, image: v.data }, 150000).then(function (res) {
     var db = view();
     if (!res || !res.ok) {
       var e = res && res.error;
@@ -737,15 +745,19 @@ function dvRead() {
       if (e === 'reader_key') return dvError('Not ready', 'The photo reader does not work: its key is wrong. Tell the office.', false);
       return dvError('Not read', 'The picture could not be read. Try again.', true);
     }
-    var r = res.read || {};
-    if (!r.date || r.date > todayStr()) r.date = todayStr();
-    var hasQ = false; for (var k in (r.q || {})) hasQ = true;
-    if (!r.clear || !r.no || !r.centre || !hasQ) {
-      var miss = [!r.no ? 'the number' : '', !r.centre ? 'the place' : '', !hasQ ? 'the quantities' : ''].filter(Boolean);
-      return dvError('Not clear', 'The picture is not clear' + (miss.length ? ': ' + listWords(miss) + ' cannot be read' : '') + '. Take the picture again, flat, with the whole note.', false);
+    /* one photo can hold two notes (the booklet open): each readable note is checked on its own */
+    var all = res.reads || [res.read || {}], ok = [], first = all[0] || {};
+    all.forEach(function (r) {
+      var hasQ = false; for (var k in (r.q || {})) hasQ = true;
+      if (r.clear && r.no && r.centre && hasQ) { if (!r.date || r.date > todayStr()) r.date = todayStr(); ok.push(r); }
+    });
+    if (!ok.length) {
+      var hq = false; for (var k2 in (first.q || {})) hq = true;
+      var miss = all.length ? [!first.no ? 'the number' : '', !first.centre ? 'the place' : '', !hq ? 'the quantities' : ''].filter(Boolean) : [];
+      return dvError('Not clear', (all.length ? 'The picture is not clear' + (miss.length ? ': ' + listWords(miss) + ' cannot be read' : '') : 'No delivery note in the picture') + '. Take the picture again, flat, with the whole note.', false);
     }
-    S.dv = { step: 'check', img: v.img, data: v.data, read: r, photo: res.photo, sentence: readSentence(db, r) }; render();
-  }).catch(function () { dvError('No internet', 'The picture is read on the internet. Try again when there is internet.', true); });
+    S.dv = { step: 'check', img: v.img, data: v.data, reads: ok, i: 0, unclear: all.length - ok.length, saved: [], photo: res.photo, sentence: readSentence(db, ok[0]) }; render();
+  }).catch(function (e) { if (e && e.message === 'timeout') return dvError('Too slow', 'The reading took too long. Try again.', true); dvError('No internet', 'The picture is read on the internet. Try again when there is internet.', true); });
 }
 
 /* ---------- overview ---------- */
@@ -917,9 +929,11 @@ A.photo = function (el) {
 A.dvRetry = function () { if (S.dv && S.dv.data) dvRead(); };
 A.say = function () { try { speechSynthesis.cancel(); var u = new SpeechSynthesisUtterance('The picture says: ' + S.dv.sentence + ' Is this correct?'); u.lang = 'en-GB'; u.rate = 0.9; speechSynthesis.speak(u); } catch (e) {} };
 A.dvYes = function () {
-  var v = S.dv, r = v.read;
+  var v = S.dv, r = v.reads[v.i];
   queueNote(r.centre, r.date, { no: r.no, q: r.q, days: null, remark: r.remark || '', recv: r.recv || '', photo: v.photo || '' });
-  S.dv = { step: 'saved', no: r.no }; render();
+  v.saved.push(r.no);
+  if (v.i + 1 < v.reads.length) { v.i++; v.sentence = readSentence(view(), v.reads[v.i]); window.scrollTo(0, 0); return render(); }
+  S.dv = { step: 'saved', nos: v.saved, unclear: v.unclear }; render();
 };
 
 A.go = function (el) { go(el.getAttribute('data-to')); };
