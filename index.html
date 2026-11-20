@@ -66,6 +66,12 @@ nav.bottom .in2{display:flex;width:100%;max-width:560px}
 svg.ic{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
 .tap{width:250px;height:250px;border-radius:999px;border:0;background:var(--blue);color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;box-shadow:0 6px 0 #08467A;touch-action:manipulation;-webkit-user-select:none;user-select:none}
 .tap:active{transform:translateY(4px);box-shadow:0 2px 0 #08467A}
+/* a count: not counted red, counting orange, finished green (always with the word next to the colour) */
+:root{--bad-bg:#FBDCDA;--bad-ink:#8A1410;--bad:#B3261E;--cnt:#B85300}
+.pill.bad{background:var(--bad-bg);color:var(--bad-ink)}
+.tap.s-none{background:var(--bad);box-shadow:0 6px 0 #7A1712} .tap.s-count{background:var(--cnt);box-shadow:0 6px 0 #7A3700} .tap.s-done{background:var(--ok-ink);box-shadow:0 6px 0 #0B3D06}
+.tap.s-none:active,.tap.s-count:active,.tap.s-done:active{box-shadow:0 2px 0 rgba(0,0,0,.45)}
+.sd{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;border:2px solid #fff;flex-shrink:0} .sd.s-none{background:var(--bad)} .sd.s-count{background:var(--cnt)} .sd.s-done{background:var(--ok-ink)}
 .tap{position:relative;-webkit-tap-highlight-color:transparent;outline:none}
 .tap:focus-visible{box-shadow:0 6px 0 #08467A,0 0 0 5px var(--em)}
 .tap::after{content:'';position:absolute;inset:0;border-radius:999px;pointer-events:none}
@@ -171,6 +177,7 @@ var IC = {
   gallery: '<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="m21 16-5-5-8 8"/>',
   camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
   sound: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M18.5 6.5a8 8 0 0 1 0 11"/>',
+  cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4"/><path d="M16 3v4"/>',
   truck: '<path d="M2 6h11v10H2z"/><path d="M13 9h5l3 4v3h-8"/><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',
   check: '<path d="M5 12.5 10 17l9-10"/>', back: '<path d="M15 5l-7 7 7 7"/>', next: '<path d="M9 5l7 7-7 7"/>', talk: '<path d="M4 5h16v11H10l-5 4v-4H4z"/>'
 };
@@ -265,14 +272,16 @@ function queue(op) {
   op.id = op.id || uid(); op.mode = S.sess.mode;
   S.queue.push(op); KV.set('queue', S.queue); changed(); syncSoon();
 }
+/* the name of the person signed in: as it is in the list now (the overview may have corrected it) */
+function myName() { var n = S.sess && S.sess.nid ? eatFind(view().names || [], S.sess.nid) : null; return n && n.active ? n.name : (S.sess ? S.sess.name : ''); }
 function saveEntry(type, meal, data, date) {
-  queue({ kind: 'entry', e: { type: type, centre: S.sess.centre, date: date || S.date, meal: meal || '', data: data, by: S.sess.nid || '', byName: S.sess.name || 'Overview', at: nowIso() } });
+  queue({ kind: 'entry', e: { type: type, centre: S.sess.centre, date: date || S.date, meal: meal || '', data: data, by: S.sess.nid || '', byName: myName() || 'Overview', at: nowIso() } });
 }
 
 /* ===================== screens ===================== */
 function topBar() {
   var right = '';
-  if (S.sess && S.sess.mode === 'entry') { var wl = [S.sess.centre ? centreName(S.sess.centre) : '', S.sess.name].filter(Boolean).join(' · '); if (wl) right = '<button class="who" data-a="who">' + esc(wl) + '</button>'; }
+  if (S.sess && S.sess.mode === 'entry') { var wl = [S.sess.centre ? centreName(S.sess.centre) : '', myName()].filter(Boolean).join(' · '); if (wl) right = '<button class="who" data-a="who">' + esc(wl) + '</button>'; }
   else if (S.sess && S.sess.mode === 'admin') right = '<button class="who" data-a="signout">Overview · Sign out</button>';
   else if (S.sess && S.sess.mode === 'delivery') right = '<button class="who" data-a="signout">Deliveries · Sign out</button>';
   var net = '';
@@ -295,28 +304,13 @@ function noticeHtml() {
   if (S.good) out += '<div class="box ok" role="status">' + esc(S.good) + '</div>';
   return out;
 }
-/* data entry: People and Daily wait until the day is chosen (comment of 20/11: the phone may show a wrong day without internet) */
-var DAYSCR = ['people', 'today', 'menu', 'before', 'after'];
-function needDay() { return S.sess && S.sess.mode === 'entry' && !S.dayOk && DAYSCR.indexOf(S.scr) >= 0; }
-function dayPickScreen() {
-  var t = todayStr();
-  return '<h1>Which day are you counting?</h1>' + (S.online ? '' : '<div class="box em">No internet: check that the day is right.</div>') +
-    [0, -1, -2].map(function (k) { var d = eatAddDays(t, k); return '<button class="btn big" data-a="pickDay" data-d="' + d + '" style="justify-content:space-between">' + (k === 0 ? 'Today' : (k === -1 ? 'Yesterday' : 'The day before')) + '<span class="b">' + dayName(d) + '</span></button>'; }).join('') +
-    '<div class="card"><label for="pd" class="lab">Another day</label><input id="pd" class="in" type="date" max="' + t + '" data-f="pd" value="' + esc(S.f.pd || '') + '"><button class="btn" data-a="pickDay" data-d="">Choose this day</button></div>';
-};
-function pickDayAct(el) {
-  var d = el.getAttribute('data-d') || (S.f.pd || '');
-  if (!eatIsDate(d) || d > todayStr()) { S.notice = 'Choose a day, not after today.'; return render(); }
-  S.dayOk = true; S.dayAt = Date.now(); S.date = d; S.week = eatMonday(d); fixMeal(); S.notice = ''; enter(S.scr); render();
-};
 function render() {
   var app = document.getElementById('app'), h = '';
   var scr = S.scr;
-  var fn = needDay() ? dayPickScreen : (SCREENS[scr] || SCREENS.signin);
+  var fn = SCREENS[scr] || SCREENS.signin;
   var body = fn();
   h = topBar() + '<main>' + noticeHtml() + body + '</main>';
   if (S.sess && NAV[scr]) h += navBar(NAV[scr]);
-  if (needDay()) scr = 'daypick';
   var y = window.scrollY, same = S.shown === scr;
   app.innerHTML = h;
   /* a new screen starts at the top; the same screen stays where the person is */
@@ -447,13 +441,14 @@ SCREENS.centre = function () {
 function dayBar() {
   var t = todayStr(), isT = S.date === t;
   return '<div class="daybar ' + (isT ? 'today' : 'past') + '"><button class="btn sq" style="border:0" data-a="day" data-d="-1" aria-label="Day before">' + ic('back') + '</button>' +
-    '<span style="display:flex;flex-direction:column;align-items:center"><span class="b" style="font-size:20px">' + dayName(S.date) + '</span><span class="s b" style="color:' + (isT ? 'var(--ok-ink)' : 'var(--em-ink)') + '">' + (isT ? 'Today' : (S.date === eatAddDays(t, -1) ? 'Yesterday' : 'Not today')) + '</span></span>' +
+    '<label style="position:relative;display:flex;flex-direction:column;align-items:center;cursor:pointer;padding:2px 8px"><span class="b" style="font-size:20px;display:flex;align-items:center;gap:6px">' + ic('cal') + dayName(S.date) + '</span><span class="s b" style="color:' + (isT ? 'var(--ok-ink)' : 'var(--em-ink)') + '">' + (isT ? 'Today' : (S.date === eatAddDays(t, -1) ? 'Yesterday' : 'Not today')) + ' · <span style="text-decoration:underline">choose the day</span></span>' +
+      '<input type="date" data-cal aria-label="Choose the day in the calendar" max="' + t + '" value="' + S.date + '" data-a-change="dayPick" style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer"></label>' +
     (isT ? '<span style="width:48px"></span>' : '<button class="btn sq" style="border:0" data-a="day" data-d="1" aria-label="Day after">' + ic('next') + '</button>') + '</div>' +
     (isT ? '' : '<button class="btn link" data-a="day" data-d="0">Back to today</button>');
 }
 function mealSeg() {
   var ms = centreMeals();
-  return '<div class="seg" style="grid-template-columns:repeat(' + ms.length + ',minmax(0,1fr))">' + ms.map(function (m) { return '<button class="btn' + (m === S.meal ? ' on' : '') + '" data-a="meal" data-m="' + m + '" aria-pressed="' + (m === S.meal) + '">' + m + '</button>'; }).join('') + '</div>';
+  return '<div class="seg" style="grid-template-columns:repeat(' + ms.length + ',minmax(0,1fr))">' + ms.map(function (m) { var st = m === S.meal ? curState() : savedState(eatGet(view(), 'people', S.sess.centre, S.date, m)); return '<button class="btn' + (m === S.meal ? ' on' : '') + '" data-a="meal" data-m="' + m + '" aria-pressed="' + (m === S.meal) + '" aria-label="' + m + ': ' + STLAB[st].toLowerCase() + '"><span class="sd s-' + st + '"></span>' + m + '</button>'; }).join('') + '</div>';
 }
 
 /* ---------- people: its own tab, one number for each meal ---------- */
@@ -462,29 +457,35 @@ function draftKey() { return 'people|' + S.sess.centre + '|' + S.date + '|' + S.
 function centreGroups() { var c = eatCentre(view(), S.sess.centre); return c && c.groups ? c.groups : []; }
 function curCount() { return S.f.grp ? (S.f.g[S.f.grp] || 0) : S.f.n; }
 function setCount(v) { if (S.f.grp) S.f.g[S.f.grp] = v; else S.f.n = v; }
-function pData() { var d = { n: S.f.n }, gs = centreGroups(); if (gs.length) { d.g = {}; gs.forEach(function (k) { d.g[k] = S.f.g[k] || 0; }); } return d; }
-function samePeople(e, d) { if (!e) return false; if (e.data.n !== d.n) return false; var a = e.data.g || {}, b = d.g || {}; for (var k in b) if ((a[k] || 0) !== b[k]) return false; return true; }
+function pData() { var d = { n: S.f.n }, gs = centreGroups(); if (gs.length) { d.g = {}; gs.forEach(function (k) { d.g[k] = S.f.g[k] || 0; }); } if (S.f.done) d.done = true; return d; }
+function samePeople(e, d) { if (!e) return false; if (e.data.n !== d.n || !!e.data.done !== !!d.done) return false; var a = e.data.g || {}, b = d.g || {}; for (var k in b) if ((a[k] || 0) !== b[k]) return false; return true; }
 function peopleLine(d) {
   var gs = centreGroups(); if (!gs.length) return plural(d.n, 'plate', 'plates');
   return esc(centreName(S.sess.centre)) + ' ' + d.n + gs.map(function (k) { return ' · ' + esc(k) + ' ' + ((d.g || {})[k] || 0); }).join('') + ' = ' + plural(eatPlates({ data: d }), 'plate', 'plates');
 }
+/* the state of a count: none (not counted), count (counting), done (finished) */
+var STLAB = { none: 'Not counted', count: 'Counting', done: 'Finished' }, STPILL = { none: 'bad', count: 'em', done: 'ok' };
+function savedState(p) { return !p ? 'none' : (p.data.done ? 'done' : 'count'); }
+function curState() { var saved = eatGet(view(), 'people', S.sess.centre, S.date, S.meal); return S.f.done ? 'done' : (saved || S.pPend || eatPlates({ data: pData() }) ? 'count' : 'none'); }
 function peopleStatus() {
-  var saved = eatGet(view(), 'people', S.sess.centre, S.date, S.meal), d = pData();
-  if (S.pPend) return '<span class="pill em">Saving…</span>';
-  return samePeople(saved, d) ? '<span class="pill ok">Saved: ' + peopleLine(d) + '</span>' : (eatPlates({ data: d }) ? '<span class="pill em">Saving…</span>' : '');
+  var saved = eatGet(view(), 'people', S.sess.centre, S.date, S.meal), d = pData(), st = curState();
+  if (st === 'none') return '<span class="pill bad">Not counted</span>';
+  return '<span class="pill ' + STPILL[st] + '">' + STLAB[st] + ': ' + peopleLine(d) + (S.pPend || !samePeople(saved, d) ? ' · saving…' : ' · saved') + '</span>';
 }
 SCREENS.people = function () {
-  var db = view(), c = S.sess.centre, n = curCount(), gs = centreGroups();
-  var all = centreMeals().map(function (m) { var p = eatGet(db, 'people', c, S.date, m); return '<div class="row"><span class="b">' + m + '</span>' + (p ? '<span class="pill ok">' + plural(eatPlates(p), 'plate', 'plates') + '</span>' : '<span class="pill warn">To do</span>') + '</div>'; }).join('');
+  var db = view(), c = S.sess.centre, n = curCount(), gs = centreGroups(), st = curState();
+  var all = centreMeals().map(function (m) { var p = eatGet(db, 'people', c, S.date, m), ms = m === S.meal ? st : savedState(p), pl = m === S.meal ? eatPlates({ data: pData() }) : (p ? eatPlates(p) : 0); return '<div class="row"><span class="b">' + m + '</span><span class="pill ' + STPILL[ms] + '">' + STLAB[ms] + (ms === 'none' ? '' : ': ' + plural(pl, 'plate', 'plates')) + '</span></div>'; }).join('');
   var grp = gs.length ? '<div class="seg" role="group" aria-label="Who eats" style="grid-template-columns:repeat(' + (gs.length + 1) + ',minmax(0,1fr))">' + [''].concat(gs).map(function (k) { var on = (S.f.grp || '') === k; return '<button class="btn' + (on ? ' on' : '') + '" data-a="grp" data-g="' + esc(k) + '" aria-pressed="' + on + '">' + esc(k || centreName(c)) + ' <span class="num">' + (k ? (S.f.g[k] || 0) : S.f.n) + '</span></button>'; }).join('') + '</div>' : '';
   return dayBar() + mealSeg() + grp +
-    '<div style="display:flex;justify-content:center;padding:18px 0 6px"><button class="tap" data-a="tap" aria-label="Add one plate' + (S.f.grp ? ' for ' + esc(S.f.grp) : '') + '"><span class="num" style="font-size:88px;font-weight:800;line-height:1" id="cnt">' + n + '</span><span style="font-size:20px;font-weight:700">' + (S.f.grp ? esc(S.f.grp) + ': +1' : 'Tap: +1') + '</span></button></div>' +
+    '<div style="display:flex;justify-content:center;padding:18px 0 6px"><button class="tap s-' + st + '" data-a="tap" aria-label="Add one plate' + (S.f.grp ? ' for ' + esc(S.f.grp) : '') + '"><span class="num" style="font-size:88px;font-weight:800;line-height:1" id="cnt">' + n + '</span><span style="font-size:20px;font-weight:700">' + (S.f.grp ? esc(S.f.grp) + ': +1' : 'Tap: +1') + '</span></button></div>' +
     '<div style="text-align:center" id="pst" aria-live="polite">' + peopleStatus() + '</div>' +
     '<div class="adds"><button class="btn" data-a="add" data-n="5">+5</button><button class="btn" data-a="add" data-n="10">+10</button><button class="btn" data-a="adding">Other</button></div>' +
     (S.f.adding ? '<div class="card"><label class="lab" for="an">How many more plates? (counted by hand)</label><input id="an" class="in num" type="number" inputmode="numeric" min="1" data-f="an" data-focus><button class="btn pri" data-a="addOk">Add</button></div>' : '') +
     '<button class="btn" data-a="undo">Undo the last one</button>' +
+    (st === 'done' ? '<div class="box ok" role="status">' + S.meal + ' is finished: ' + peopleLine(pData()) + '. A new tap opens the count again.</div>'
+      : '<button class="btn big" data-a="finish" style="background:var(--ok-ink);border-color:var(--ok-ink);color:#fff">' + ic('check') + 'Finish ' + S.meal.toLowerCase() + '</button>') +
     (S.f.typing ? '<div class="card"><label class="lab" for="tn">Number of plates in all' + (S.f.grp ? ' for ' + esc(S.f.grp) : '') + '</label><input id="tn" class="in num" type="number" inputmode="numeric" min="0" value="' + n + '" data-f="tn" data-focus><button class="btn" data-a="typeOk">OK</button></div>' : '<button class="btn link" data-a="typing">Type the number in all</button>') +
-    '<span class="m s" style="text-align:center">Every change is saved by itself.</span>' +
+    '<span class="m s" style="text-align:center">Every change is saved by itself. Press Finish when the meal is over.</span>' +
     '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">All meals, ' + dayName(S.date) + '</span>' + all + '</div>';
 };
 
@@ -875,19 +876,26 @@ SCREENS.settings = function () {
   }).join('') + '<div class="ver">CYP EAT ' + EAT_VERSION + '</div>';
   var parts = {
     users: function () { return '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Names</span>' +
-    (names.length ? names.map(function (n) { return '<div class="row"><span class="b">' + esc(n.name) + '</span><span style="display:flex;gap:8px;align-items:center"><span class="pill">' + esc(n.role) + '</span><button class="nc" data-a="nameOff" data-id="' + esc(n.id) + '">Remove</button></span></div>'; }).join('') : '<span class="m">No names yet.</span>') +
+    (names.length ? names.map(function (n) {
+      if (S.f.editId === n.id) return '<div class="row" style="flex-direction:column;align-items:stretch;gap:8px"><label for="en" class="lab">Name</label><input id="en" class="in" type="text" data-f="en" value="' + esc(S.f.en || '') + '" data-focus>' +
+        '<div class="seg" style="grid-template-columns:repeat(3,minmax(0,1fr))">' + EAT_ROLES.map(function (r) { return '<button class="btn' + (S.f.er === r ? ' on' : '') + '" data-a="nameEditRole" data-r="' + r + '" aria-pressed="' + (S.f.er === r) + '">' + r + '</button>'; }).join('') + '</div>' +
+        '<div style="display:flex;gap:8px"><button class="btn" data-a="nameEditCancel" style="flex:1 1 0">Cancel</button><button class="btn pri" data-a="nameEditSave" style="flex:2 1 0">Save the name</button></div></div>';
+      return '<div class="row"><span class="b">' + esc(n.name) + '</span><span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end"><span class="pill">' + esc(n.role) + '</span><button class="nc" data-a="nameEdit" data-id="' + esc(n.id) + '" aria-label="Edit ' + esc(n.name) + '">Edit</button><button class="nc" data-a="nameOff" data-id="' + esc(n.id) + '" aria-label="Remove ' + esc(n.name) + '">Remove</button></span></div>'; }).join('') : '<span class="m">No names yet.</span>') +
     '<div style="display:flex;flex-direction:column;gap:8px;border-top:2px solid var(--ink);padding-top:10px;margin-top:6px"><label for="nn" class="lab">Add a name</label><input id="nn" class="in" type="text" data-f="nn" value="' + esc(S.f.nn || '') + '">' +
     '<div class="seg" style="grid-template-columns:repeat(3,minmax(0,1fr))">' + EAT_ROLES.map(function (r) { return '<button class="btn' + ((S.f.role || 'Volunteer') === r ? ' on' : '') + '" data-a="role" data-r="' + r + '">' + r + '</button>'; }).join('') + '</div>' +
-    '<button class="btn pri" data-a="nameAdd">Add</button></div></div>'; },
+    '<button class="btn pri" data-a="nameAdd">Add the name</button></div></div>'; },
     centres: function () { return '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Centres and meals</span>' + eatCanteens(db).map(function (c) {
       return '<div class="row" style="flex-direction:column;align-items:stretch"><span class="b">' + esc(c.name) + '</span><div class="seg" style="grid-template-columns:repeat(3,minmax(0,1fr))">' + EAT_MEALS.map(function (m) { var on = c.meals.indexOf(m) >= 0; return '<button class="btn' + (on ? ' on' : '') + '" data-a="cmeal" data-id="' + c.id + '" data-m="' + m + '" aria-pressed="' + on + '">' + m + '</button>'; }).join('') + '</div>' +
         '<button class="nc' + (c.left ? ' on' : '') + '" data-a="cleft" data-id="' + c.id + '" aria-pressed="' + !!c.left + '" style="align-self:flex-start;margin-top:6px">Leftovers at the end of the day: ' + (c.left ? 'counted' : 'not counted') + '</button>' +
         '<span class="m s" style="padding-top:6px">Also eat here (counted apart): ' + ((c.groups || []).length ? c.groups.map(function (g) { return '<button class="nc" data-a="grpOff" data-id="' + c.id + '" data-g="' + esc(g) + '" aria-label="Remove ' + esc(g) + '">' + esc(g) + ' ×</button>'; }).join(' ') : 'nobody') + '</span>' +
-        '<div style="display:flex;gap:6px;padding-top:4px"><input class="in" type="text" aria-label="A group that eats at ' + esc(c.name) + '" placeholder="Holy Family" data-f="grp_' + c.id + '" value="' + esc(S.f['grp_' + c.id] || '') + '"><button class="btn" data-a="grpAdd" data-id="' + c.id + '">Add</button></div></div>';
+        '<div style="display:flex;gap:6px;padding-top:4px"><input class="in" type="text" aria-label="A group that eats at ' + esc(c.name) + '" data-f="grp_' + c.id + '" value="' + esc(S.f['grp_' + c.id] || '') + '"><button class="btn" data-a="grpAdd" data-id="' + c.id + '">Add</button></div></div>';
     }).join('') + '</div>'; },
-    food: function () { return '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Units</span>' + db.items.filter(function (it) { return it.unit !== it.use; }).map(function (it) {
-      return '<div class="row"><label for="per_' + it.id + '">1 ' + esc(it.unit.replace(/s$/, '')) + ' of ' + esc(it.name.toLowerCase()) + '&nbsp;=</label><span style="display:flex;gap:6px;align-items:center"><input id="per_' + it.id + '" class="in num" style="width:90px;text-align:right" type="number" inputmode="decimal" value="' + (it.per || '') + '" data-per="' + it.id + '"><span class="m b" style="width:56px">' + esc(it.use) + '</span></span></div>';
-    }).join('') + '<button class="btn" data-a="savePer" style="margin-top:8px">Save the units</button></div>'; },
+    food: function () { return '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">How each food is counted in the store</span><span class="m s" style="padding-bottom:6px">In its own unit (kg, chickens, eggs), or in bags, trays, cans, packs or pieces. For those, write how much is in one.</span>' + db.items.map(function (it) {
+      var un = S.f['un_' + it.id] || it.unit, pack = un !== it.use, per = S.f['pe_' + it.id] != null ? S.f['pe_' + it.id] : (it.unit === un && it.per ? it.per : '');
+      return '<div class="row" style="flex-direction:column;align-items:stretch;gap:6px"><span class="b">' + esc(it.name) + '</span>' +
+        '<div style="display:flex;gap:8px;align-items:center"><label for="un_' + it.id + '" class="m s" style="flex-shrink:0">Counted in</label><select id="un_' + it.id + '" class="in" data-a-change="unitSel" data-id="' + it.id + '">' + [it.use].concat(EAT_PACKS.filter(function (u) { return u !== it.use && (u !== 'pieces' || it.use === 'kg'); })).map(function (u) { return '<option value="' + u + '"' + (u === un ? ' selected' : '') + '>' + esc(u) + '</option>'; }).join('') + '</select></div>' +
+        (pack ? '<div style="display:flex;gap:6px;align-items:center"><label for="pe_' + it.id + '">1 ' + esc(un.replace(/s$/, '')) + '&nbsp;=</label><input id="pe_' + it.id + '" class="in num" style="width:96px;text-align:right" type="text" inputmode="decimal" value="' + esc(String(per)) + '" data-f="pe_' + it.id + '"><span class="m b">' + esc(it.use) + '</span></div>' : '') + '</div>';
+    }).join('') + '<button class="btn pri" data-a="saveUnits" style="margin-top:8px">Save the units</button></div>'; },
     places: function () { return placesCard(db); },
     pins: function () { return '<div class="card"><span class="b" style="font-size:18px">PINs</span><button class="btn" data-a="pinChange" data-w="entry">Change the data entry PIN</button><button class="btn" data-a="pinChange" data-w="admin">Change the overview PIN</button><button class="btn" data-a="pinChange" data-w="delivery">' + (db.settings && db.settings.delivery ? 'Change the deliveries PIN' : 'Set the deliveries PIN') + '</button><span class="m s">Deliveries: the person who brings the food takes a photo of each delivery note.</span></div>' + '<div class="card"><span class="b" style="font-size:18px">Link for the people who count</span><button class="btn" data-a="copyLink">Copy the link</button><span class="m s">Send the link and, in another message, the data entry PIN.</span></div>'; },
     reader: function () { return readerCard(); },
@@ -928,7 +936,7 @@ function enter(scr) {
     if (typeof dr === 'number') dr = { n: dr };
     var keepGrp = S.f && S.f.grp && centreGroups().indexOf(S.f.grp) >= 0 ? S.f.grp : '';
     var src = dr || (e ? e.data : { n: 0 });
-    S.f = { n: src.n || 0, g: JSON.parse(JSON.stringify(src.g || {})), grp: keepGrp, hist: [] };
+    S.f = { n: src.n || 0, g: JSON.parse(JSON.stringify(src.g || {})), grp: keepGrp, hist: [], done: !!src.done };
     if (dr && !samePeople(e, pData())) { S.pPend = { d: d, m: m, data: pData(), k: draftKey() }; clearTimeout(S.pTimer); S.pTimer = setTimeout(peopleFlush, 1500); }
   }
   if (scr === 'menu') {
@@ -966,7 +974,7 @@ function defaultMeal() {
 }
 function startSession() {
   S.fullNext = true; /* a new sign in reads everything again: the overview also gets the comments */
-  S.date = todayStr(); S.today = S.date; S.week = eatMonday(S.date); S.dayOk = false;
+  S.date = todayStr(); S.today = S.date; S.week = eatMonday(S.date);
   if (S.sess.mode === 'admin') { S.scr = 'overview'; }
   else if (S.sess.mode === 'delivery') { S.dv = { step: 'start' }; S.scr = 'deliver'; }
   else if (!S.sess.nid) S.scr = 'name';
@@ -979,7 +987,6 @@ function signOut(msg) { S.sess = null; KV.del('sess'); S.scr = 'signin'; S.pin =
 
 /* ===================== actions ===================== */
 var A = {};
-A.pickDay = pickDayAct;
 A.setSec = function (el) { S.setSec = el.getAttribute('data-s'); S.notice = ''; render(); };
 /* deliveries */
 A.photo = function (el) {
@@ -1031,7 +1038,8 @@ A.mode = function (el) { S.pinMode = el.getAttribute('data-m'); S.pin = ''; S.ms
 A.key = function (el) {
   var k = el.getAttribute('data-k');
   if (k === 'del') { S.pin = S.pin.slice(0, -1); S.msg = ''; return render(); }
-  if (k !== 'ok') { if (S.pin.length >= 4) return; S.pin += k; S.msg = ''; render(); if (S.pin.length === 4) A.key({ getAttribute: function () { return 'ok'; } }); return; }
+  if (k !== 'ok') { if (S.pin.length >= 4) return; S.pin += k; S.msg = ''; return render(); }
+  if (S.pin.length !== 4) return;
   var mode = S.pinMode, st = (view().settings || {})[mode];
   if (!st || !st.salt) { S.msg = mode === 'delivery' && view().settings && view().settings.entry ? 'The overview has not set the deliveries PIN yet.' : 'Open CYP EAT once with internet.'; return render(); }
   var cred = credOf(st.salt, S.pin), pin = S.pin;
@@ -1040,11 +1048,11 @@ A.key = function (el) {
   post({ action: 'login', mode: mode, cred: cred }).then(function (res) {
     S.busy = false; S.online = true;
     if (res && res.ok) return enterAs();
-    S.pin = ''; S.msg = res && res.error === 'locked' ? 'Too many wrong PINs. Wait one minute.' : 'Wrong PIN.'; render();
+    S.pin = ''; S.msg = res && res.error === 'locked' ? 'Too many wrong PINs. Wait one minute.' : 'Wrong PIN. Try again.'; render();
   }).catch(function () {
     S.busy = false; S.online = false;
     if (S.verif[mode] && S.verif[mode] === sha256('v:' + cred)) return enterAs();
-    S.pin = ''; S.msg = S.verif[mode] ? 'Wrong PIN.' : 'No internet. The first time on this phone needs internet.'; render();
+    S.pin = ''; S.msg = S.verif[mode] ? 'Wrong PIN. Try again.' : 'No internet. The first time on this phone needs internet.'; render();
   });
 };
 function remember() { KV.set('sess', S.sess); KV.set('me', { nid: S.sess.nid, name: S.sess.name, centre: S.sess.centre }); }
@@ -1052,11 +1060,13 @@ A.pickName = function (el) { var n = eatFind(view().names, el.getAttribute('data
 A.pickCentre = function (el) { S.sess.centre = el.getAttribute('data-id'); remember(); S.meal = defaultMeal(); go('people'); };
 A.who = function () { S.scr = 'name'; render(); };
 A.signout = function () { signOut(''); };
+A.dayPick = function (el) { var d = el.value; if (!eatIsDate(d) || d > todayStr()) return render(); peopleFlush(); S.date = d; S.week = eatMonday(d); fixMeal(); enter(S.scr); render(); };
 A.day = function (el) { peopleFlush(); var d = Number(el.getAttribute('data-d')); S.date = d === 0 ? todayStr() : eatAddDays(S.date, d); if (S.date > todayStr()) S.date = todayStr(); fixMeal(); enter(S.scr); render(); };
 function fixMeal() { if (centreMeals().indexOf(S.meal) < 0) S.meal = defaultMeal(); }
 A.meal = function (el) { peopleFlush(); S.meal = el.getAttribute('data-m'); enter(S.scr); S.keepScroll = true; render(); };
 /* people: every change is kept on the phone at once and saved 1.5 seconds after the last tap (or on leaving the screen) */
 function peopleChanged(inc) {
+  S.f.done = false; /* a change after Finish opens the count again */
   if (inc) S.f.hist.push({ g: S.f.grp || '', k: inc });
   var d = pData(), dr = KV.get('draft', {}); dr[draftKey()] = d; KV.set('draft', dr);
   S.pPend = { d: S.date, m: S.meal, data: d, k: draftKey() };
@@ -1064,6 +1074,8 @@ function peopleChanged(inc) {
   var c = document.getElementById('cnt'), st = document.getElementById('pst');
   if (c) c.textContent = curCount(); if (st) st.innerHTML = peopleStatus();
   var sb = document.querySelector('[data-a="grp"][aria-pressed="true"] .num'); if (sb) sb.textContent = curCount();
+  var tb = document.querySelector('.tap'); if (tb) { tb.classList.remove('s-none', 's-done'); tb.classList.add('s-count'); }
+  var md = document.querySelector('[data-a="meal"][aria-pressed="true"] .sd'); if (md) md.className = 'sd s-count';
 }
 function peopleFlush() {
   clearTimeout(S.pTimer); S.pTimer = null;
@@ -1071,12 +1083,13 @@ function peopleFlush() {
   var saved = eatGet(view(), 'people', S.sess.centre, p.d, p.m);
   if (!samePeople(saved, p.data)) saveEntry('people', p.m, p.data, p.d);
   var dr = KV.get('draft', {}); delete dr[p.k]; KV.set('draft', dr);
-  var st = document.getElementById('pst'); if (st && S.scr === 'people') st.innerHTML = peopleStatus();
+  if (S.scr === 'people') bgRender();
 }
 function ringTap() { var b = document.querySelector('.tap'); if (!b) return; b.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit'); }
 A.tap = function () { vibrate(); ringTap(); setCount(curCount() + 1); peopleChanged(1); };
 A.grp = function (el) { S.f.grp = el.getAttribute('data-g'); S.keepScroll = true; render(); };
 A.add = function (el) { var k = Number(el.getAttribute('data-n')); vibrate(); ringTap(); setCount(curCount() + k); peopleChanged(k); };
+A.finish = function () { S.f.done = true; S.pPend = { d: S.date, m: S.meal, data: pData(), k: draftKey() }; peopleFlush(); S.keepScroll = true; render(); };
 A.adding = function () { S.f.adding = !S.f.adding; S.f.an = ''; S.keepScroll = true; render(); };
 A.addOk = function () { var k = Math.round(Number(S.f.an)); if (isFinite(k) && k > 0 && k < 2000) { setCount(curCount() + k); S.f.adding = false; peopleChanged(k); } S.keepScroll = true; render(); };
 A.undo = function () { var h = S.f.hist.length ? S.f.hist.pop() : { g: S.f.grp || '', k: 1 }; var keep = S.f.grp; S.f.grp = h.g; setCount(Math.max(0, curCount() - h.k)); peopleChanged(0); S.f.grp = keep; S.keepScroll = true; render(); };
@@ -1149,7 +1162,7 @@ A.saveAfter = function () {
   d.u = S.f.u || {};
   saveEntry('dafter', '', d); go('today');
 };
-function queueNote(centre, date, data) { queue({ kind: 'entry', e: { type: 'note', centre: centre, date: date, meal: '', data: data, by: S.sess.nid || '', byName: S.sess.name || 'Overview', at: nowIso() } }); }
+function queueNote(centre, date, data) { queue({ kind: 'entry', e: { type: 'note', centre: centre, date: date, meal: '', data: data, by: S.sess.nid || '', byName: myName() || 'Overview', at: nowIso() } }); }
 A.noteNew = function () { S.noteNo = ''; go('note'); };
 A.noteOpen = function (el) { S.noteNo = el.getAttribute('data-no'); go('note'); };
 A.partAdd = function () {
@@ -1195,12 +1208,20 @@ A.nameAdd = function () {
   var nm = (S.f.nn || '').trim(); if (!nm) { S.notice = 'Write the name.'; return render(); }
   queue({ kind: 'name_add', name: nm, role: S.f.role || 'Volunteer', nid: 'n' + uid() }); S.f.nn = ''; S.keepScroll = true; render();
 };
+A.nameEdit = function (el) { var n = eatFind(view().names, el.getAttribute('data-id')); if (!n) return; S.f.editId = n.id; S.f.en = n.name; S.f.er = n.role; S.keepScroll = true; render(); };
+A.nameEditRole = function (el) { S.f.er = el.getAttribute('data-r'); S.keepScroll = true; render(); };
+A.nameEditCancel = function () { S.f.editId = ''; S.keepScroll = true; render(); };
+A.nameEditSave = function () {
+  var nm = (S.f.en || '').trim(), db = view(); if (!nm) { S.notice = 'Write the name.'; return render(); }
+  if (db.names.some(function (x) { return x.active && x.id !== S.f.editId && x.name.toLowerCase() === nm.toLowerCase(); })) { S.notice = 'This name is already in the list.'; return render(); }
+  queue({ kind: 'name_edit', nid: S.f.editId, name: nm, role: S.f.er }); S.f.editId = ''; S.notice = ''; S.good = 'Name saved.'; S.keepScroll = true; render();
+};
 A.nameOff = function (el) { var n = eatFind(view().names, el.getAttribute('data-id')); if (!n || !confirm('Remove ' + n.name + '?')) return; queue({ kind: 'name_off', nid: n.id }); S.keepScroll = true; render(); };
 function placesCard(db) {
   var pl = eatPlaces(db).filter(function (c) { return c.place; });
   return '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Places that receive deliveries</span><span class="m s" style="padding-bottom:6px">The four centres, and other places without a canteen.</span>' +
     pl.map(function (c) { return '<div class="row"><span class="b">' + esc(c.name) + '</span><button class="nc" data-a="placeOff" data-id="' + c.id + '">Remove</button></div>'; }).join('') +
-    '<div style="display:flex;flex-direction:column;gap:8px;border-top:2px solid var(--ink);padding-top:10px;margin-top:6px"><label for="np" class="lab">Add a place</label><input id="np" class="in" type="text" data-f="np" value="' + esc(S.f.np || '') + '" placeholder="Holy Family"><button class="btn pri" data-a="placeAdd">Add</button></div></div>';
+    '<div style="display:flex;flex-direction:column;gap:8px;border-top:2px solid var(--ink);padding-top:10px;margin-top:6px"><label for="np" class="lab">Add a place</label><input id="np" class="in" type="text" data-f="np" value="' + esc(S.f.np || '') + '"><button class="btn pri" data-a="placeAdd">Add</button></div></div>';
 }
 function readerCard() {
   return '<div class="card"><span class="b" style="font-size:18px">Photo reader</span><span>' + (S.reader ? '<span class="pill ok">On</span> The photos of the delivery notes are read by Gemini.' : '<span class="pill warn">Not set</span> Without it, the deliveries person cannot save the photos.') + '</span>' +
@@ -1225,10 +1246,16 @@ A.cmeal = function (el) {
   if (i >= 0) { if (ms.length === 1) { S.notice = 'A centre needs at least one meal.'; return render(); } ms.splice(i, 1); } else ms.push(m);
   queue({ kind: 'centre_meals', cid: c.id, meals: ms }); S.keepScroll = true; render();
 };
-A.savePer = function () {
-  var els = document.querySelectorAll('[data-per]'), n = 0;
-  for (var i = 0; i < els.length; i++) { var it = eatItem(view(), els[i].getAttribute('data-per')), v = eatNum(els[i].value); if (v != null && v !== it.per) { queue({ kind: 'item_per', iid: it.id, per: v }); n++; } }
-  S.good = n ? 'Units saved.' : 'Nothing changed.'; S.keepScroll = true; render();
+A.unitSel = function (el) { var id = el.getAttribute('data-id'); S.f['un_' + id] = el.value; delete S.f['pe_' + id]; S.keepScroll = true; render(); };
+A.saveUnits = function () {
+  var db = view(), n = 0, miss = [];
+  db.items.forEach(function (it) {
+    var un = S.f['un_' + it.id] || it.unit, pack = un !== it.use, raw = S.f['pe_' + it.id], per = pack ? (raw != null ? eatNum(raw) : (it.unit === un ? it.per : null)) : 1;
+    if (pack && !per) { per = 0; miss.push(it.name.toLowerCase()); }
+    if (un !== it.unit || (pack && per !== it.per)) { queue({ kind: 'item_unit', iid: it.id, unit: un, per: per }); n++; }
+    delete S.f['un_' + it.id]; delete S.f['pe_' + it.id];
+  });
+  S.good = n ? 'Units saved.' : 'Nothing changed.'; S.notice = miss.length ? 'Still missing: how much is in one of ' + listWords(miss) + '.' : ''; S.keepScroll = true; render();
 };
 A.pinChange = function (el) { S.f.which = el.getAttribute('data-w'); S.f.np1 = ''; S.f.np2 = ''; S.msg = ''; openModal(pinModal); };
 A.pinSave = function () {
@@ -1331,7 +1358,7 @@ function makeXlsx(sheets) {
 function saveFile(name, blob) { try { var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); } catch (e) { S.notice = 'This screen cannot save files.'; render(); } }
 function exportXlsx() {
   var db = view(), E = db.entries.filter(function (e) { return !e.del; }).sort(function (a, b) { return (a.date + a.centre + EAT_MEALS.indexOf(a.meal)) < (b.date + b.centre + EAT_MEALS.indexOf(b.meal)) ? -1 : 1; });
-  var people = { name: 'People', head: ['Date', 'Day', 'Centre', 'Meal', 'Plates', 'Of which', 'Counted by', 'Saved at'], rows: [] };
+  var people = { name: 'People', head: ['Date', 'Day', 'Centre', 'Meal', 'Plates', 'Of which', 'Finished', 'Counted by', 'Saved at'], rows: [] };
   var day = { name: 'Food a day', head: ['Date', 'Day', 'Centre', 'Menu', 'Cook', 'Item', 'Taken out', 'Left at the end of the day', 'Unit written', 'Used', 'Unit', 'Plates of the day', 'Amount a plate', 'Food not counted'], rows: [] };
   var food = { name: 'Food a meal (old)', head: ['Date', 'Day', 'Centre', 'Meal', 'Menu', 'Item', 'Before', 'Back', 'Unit written', 'Used', 'Unit', 'Plates', 'Kept for later meal', 'Amount a plate', 'Food not counted'], rows: [] };
   var rec = { name: 'Delivery notes', head: ['Note no.', 'Date', 'Day', 'Centre', 'Item', 'Quantity', 'Unit', 'Should last (days)', 'Until', 'Remark', 'Received by', 'Copied by'], rows: [] };
@@ -1339,7 +1366,7 @@ function exportXlsx() {
   var seen = {};
   E.forEach(function (e) {
     var c = centreName(e.centre);
-    if (e.type === 'people') people.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, eatPlates(e), e.data.g ? e.data.n + ' ' + c + Object.keys(e.data.g).map(function (k) { return ', ' + e.data.g[k] + ' ' + k; }).join('') : '', e.byName, localTime(e.saved)]);
+    if (e.type === 'people') people.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, eatPlates(e), e.data.g ? e.data.n + ' ' + c + Object.keys(e.data.g).map(function (k) { return ', ' + e.data.g[k] + ' ' + k; }).join('') : '', e.data.done ? 'Yes' : 'Counting', e.byName, localTime(e.saved)]);
     if ((e.type === 'dbefore' || e.type === 'dskip') && !seen['d' + e.centre + e.date]) {
       seen['d' + e.centre + e.date] = 1;
       var du = eatDayUse(db, e.centre, e.date), db0 = eatGet(db, 'dbefore', e.centre, e.date, ''), da = eatLeft(db, e.centre) ? eatGet(db, 'dafter', e.centre, e.date, '') : null, dmn = eatDayMenu(db, e.centre, e.date), dmt = dayMenuText(db, dmn);
@@ -1381,6 +1408,8 @@ function exportXlsx() {
 
 /* ===================== events ===================== */
 document.addEventListener('click', function (ev) {
+  /* the day in the day bar: open the calendar of the phone or computer */
+  var cal = ev.target.closest('[data-cal]'); if (cal) { try { if (cal.showPicker) cal.showPicker(); } catch (e) {} return; }
   var el = ev.target.closest('[data-a]'); if (!el || el.disabled) return;
   var a = el.getAttribute('data-a'); if (A[a]) { ev.preventDefault(); A[a](el); }
 });
@@ -1404,7 +1433,7 @@ window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault()
 window.addEventListener('appinstalled', function () { S.installEvt = null; KV.set('installed', true); if (S.modal === installModal) closeModal(); bgRender(); });
 setInterval(function () { if (S.sess && document.visibilityState === 'visible') sync(); }, 30000);
 document.addEventListener('visibilitychange', function () {
-  if (document.visibilityState === 'hidden') { peopleFlush(); S.hiddenAt = Date.now(); return; }
+  if (document.visibilityState === 'hidden') { peopleFlush(); return; }
   if (!S.sess) return;
   newDay(); sync();
 });
@@ -1412,8 +1441,9 @@ window.addEventListener('pagehide', function () { peopleFlush(); });
 /* the app left open overnight, with or without internet: the next day starts on the new date */
 function newDay() {
   var t = todayStr(); if (!S.today) S.today = t;
-  /* a new date, or back after 30 minutes: the day is asked again */
-  if (t !== S.today || (S.dayAt && Date.now() - S.dayAt > 30 * 60000 && S.hiddenAt && Date.now() - S.hiddenAt > 30 * 60000)) { S.today = t; S.dayOk = false; render(); }
+  if (t === S.today) return;
+  var wasToday = S.date === S.today; S.today = t;
+  if (wasToday) { S.date = t; S.week = eatMonday(t); fixMeal(); enter(S.scr); render(); }
 }
 setInterval(function () { if (S.sess) newDay(); }, 60000);
 
