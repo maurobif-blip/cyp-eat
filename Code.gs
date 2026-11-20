@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.8';
+var EAT_VERSION = 'alpha 0.9';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 var EAT_ROLES = ['Volunteer', 'Canteen', 'Educator'];
 /* three accesses: entry (people and food), delivery (photos of the delivery notes), admin (overview) */
@@ -153,7 +153,7 @@ function eatMealUse(db, centre, date, meal) {
 function eatLeft(db, centre) { var c = eatCentre(db, centre); return !!(c && c.left); }
 /* the menu of the day: what is saved, else the weekly plan for each meal of the centre */
 function eatDayMenu(db, centre, date) {
-  var e = eatGet(db, 'dmenu', centre, date, ''), c = eatCentre(db, centre), meals = c ? c.meals : ['Lunch'], out = { saved: !!e, meals: {} };
+  var e = eatGet(db, 'dmenu', centre, date, ''), c = eatCentre(db, centre), meals = c ? c.meals : ['Lunch'], out = { saved: !!e, meals: {}, cook: e && e.data.cook ? e.data.cook : '' };
   for (var i = 0; i < meals.length; i++) {
     var m = meals[i], x = e && e.data.meals ? e.data.meals[m] : null;
     if (m === 'Breakfast') out.meals[m] = x ? { mm: !!x.mm, other: x.other || '' } : { mm: true, other: '' };
@@ -418,7 +418,7 @@ function eatClean(db, type, d) {
       var rr = []; for (var ri = 0; ri < (x.relish || []).length; ri++) { var ri2 = eatItem(db, x.relish[ri]); if (ri2 && ri2.relish && rr.indexOf(ri2.id) < 0) rr.push(ri2.id); }
       ms[mk] = { mm: !!x.mm, relish: rr, veg: eatText(x.veg, 60) };
     }
-    return { meals: ms };
+    return { meals: ms, cook: eatText(d.cook, 60) };
   }
   if (type === 'received') return { q: qs(d.q) };
   if (type === 'endweek' || type === 'startweek') return { q: qs(d.q), nc: ncs(d.nc) };
@@ -538,6 +538,7 @@ function details_(db, e) {
       if (x.veg) p2.push(x.veg);
       parts.push(m + ': ' + p2.join(', '));
     }
+    if (d.cook) parts.push('Cook: ' + d.cook);
     return parts.join(' | ');
   }
   var q = d.q || {}, nc = d.nc || {};
@@ -617,20 +618,19 @@ function readNote_(img, db) {
   var name = 'delivery-' + Utilities.formatDate(new Date(), 'Africa/Lusaka', 'yyyy-MM-dd_HHmmss') + '.jpg';
   var file = photoFolder_().createFile(Utilities.newBlob(Utilities.base64Decode(img), 'image/jpeg', name));
   var body = { contents: [{ parts: [{ text: readerPrompt_(db) }, { inline_data: { mime_type: 'image/jpeg', data: img } }] }], generationConfig: { responseMimeType: 'application/json' } };
-  /* Flash-Lite reads a note in about 8 seconds (Flash about 60, 20/11/2026): Flash only when Flash-Lite cannot read it */
+  /* Flash-Lite reads a photo in about 10 seconds. Flash takes one to two minutes on the free key (20/11/2026): it is used only
+     if the Flash-Lite name stops existing. A note Flash-Lite cannot read is photographed again: that is faster than waiting. */
   var models = [props_().getProperty('geminiModel') || 'gemini-flash-lite-latest', 'gemini-flash-latest'], best = null, last = '';
-  for (var i = 0; i < models.length; i++) {
+  for (var i = 0; i < models.length && !best; i++) {
     var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent', { method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key }, payload: JSON.stringify(body), muteHttpExceptions: true });
     var code = res.getResponseCode(); last = code + ' ' + res.getContentText().slice(0, 160);
     if (code === 404) continue;
-    if (code !== 200) { if (best) break; return { ok: false, error: code === 400 || code === 403 ? 'reader_key' : 'reader', detail: last, photo: file.getId() }; }
+    if (code !== 200) return { ok: false, error: code === 400 || code === 403 ? 'reader_key' : (code === 429 ? 'reader_busy' : 'reader'), detail: last, photo: file.getId() };
     var out = JSON.parse(res.getContentText()), parts = (((out.candidates || [])[0] || {}).content || {}).parts || [], text = '';
     for (var j = 0; j < parts.length; j++) if (parts[j].text) text += parts[j].text;
-    var r; try { r = JSON.parse(text.replace(/^\s*```(?:json)?/, '').replace(/```\s*$/, '')); } catch (e) { continue; }
+    var r; try { r = JSON.parse(text.replace(/^\s*```(?:json)?/, '').replace(/```\s*$/, '')); } catch (e) { return { ok: false, error: 'reader', detail: 'not json', photo: file.getId() }; }
     var notes = (r.notes || (r.note_number !== undefined ? [r] : [])).map(function (n) { return readOne_(n, db); });
-    var good = notes.filter(function (n) { return n.clear && n.no && n.centre && Object.keys(n.q).length; }).length;
-    if (!best || good > best.good) best = { notes: notes, good: good, model: models[i] };
-    if (good && good === notes.length) break;
+    best = { notes: notes, model: models[i] };
   }
   if (!best) return { ok: false, error: 'reader', detail: last, photo: file.getId() };
   return { ok: true, photo: file.getId(), reads: best.notes, read: best.notes[0] || { clear: false, no: '', date: '', centre: '', q: {} }, model: best.model };
