@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.6';
+var EAT_VERSION = 'alpha 0.7';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 var EAT_ROLES = ['Volunteer', 'Canteen', 'Educator'];
 /* three accesses: entry (people and food), delivery (photos of the delivery notes), admin (overview) */
@@ -96,6 +96,8 @@ function eatItemsOf(db) { return db.items; }
 function eatItem(db, id) { return eatFind(db.items, id); }
 function eatCentre(db, id) { return eatFind(db.centres, id); }
 /* centres with a canteen (people and food are counted); places only receive deliveries */
+/* the plates of one meal: the centre's own, and the groups that eat food cooked there (Luigi cooks for Holy Family) */
+function eatPlates(p) { var t = p.data.n || 0, g = p.data.g || {}; for (var k in g) t += g[k] || 0; return t; }
 function eatCanteens(db) { var o = []; for (var i = 0; i < db.centres.length; i++) if (!db.centres[i].place && !db.centres[i].off) o.push(db.centres[i]); return o; }
 function eatPlaces(db) { var o = []; for (var i = 0; i < db.centres.length; i++) if (!db.centres[i].off) o.push(db.centres[i]); return o; }
 
@@ -124,7 +126,7 @@ function eatLaterMeal(db, centre, meal) {
 /* what one meal used. used[item] is in "use" units, usedU[item] in store units; null = not counted or size not set. */
 function eatMealUse(db, centre, date, meal) {
   var out = { skipped: false, hasBefore: false, hasAfter: false, used: {}, usedU: {}, pieces: null, plates: null, kept: null, base: null };
-  var p = eatGet(db, 'people', centre, date, meal); if (p) out.plates = p.data.n;
+  var p = eatGet(db, 'people', centre, date, meal); if (p) out.plates = eatPlates(p);
   var sk = eatGet(db, 'skip', centre, date, meal);
   if (sk && sk.data.on) { out.skipped = true; return out; }
   var b = eatGet(db, 'before', centre, date, meal), a = eatGet(db, 'after', centre, date, meal);
@@ -171,7 +173,7 @@ function eatDayRows(db, centre, date) {
 function eatDayUse(db, centre, date) {
   var out = { day: true, skipped: false, hasBefore: false, hasAfter: false, closed: false, used: {}, usedU: {}, pieces: null, plates: null, base: null, peopleMissing: 0 };
   var c = eatCentre(db, centre), meals = c ? c.meals : [];
-  for (var i = 0; i < meals.length; i++) { var p = eatGet(db, 'people', centre, date, meals[i]); if (p) out.plates = (out.plates || 0) + p.data.n; else out.peopleMissing++; }
+  for (var i = 0; i < meals.length; i++) { var p = eatGet(db, 'people', centre, date, meals[i]); if (p) out.plates = (out.plates || 0) + eatPlates(p); else out.peopleMissing++; }
   out.base = out.plates;
   var sk = eatGet(db, 'dskip', centre, date, '');
   if (sk && sk.data.on) { out.skipped = true; return out; }
@@ -364,6 +366,13 @@ function eatApply(db, mode, op, nowIso, info) {
     info.audit.push({ time: nowIso, who: 'Overview', action: 'Place removed', detail: po.name });
     return { ok: true };
   }
+  if (k === 'centre_groups') {
+    var cg = eatCentre(db, op.cid); if (!cg || cg.place) return { ok: false, error: 'id' };
+    var gs = []; for (i = 0; i < (op.groups || []).length && gs.length < 4; i++) { var gt = eatText(op.groups[i], 40); if (gt && gs.indexOf(gt) < 0 && gt !== cg.name) gs.push(gt); }
+    cg.groups = gs; bump(cg);
+    info.audit.push({ time: nowIso, who: 'Overview', action: 'Groups', detail: cg.name + ': ' + (gs.join(', ') || 'none') });
+    return { ok: true };
+  }
   if (k === 'centre_left') {
     var cl = eatCentre(db, op.cid); if (!cl) return { ok: false, error: 'id' };
     cl.left = !!op.on; bump(cl);
@@ -391,7 +400,11 @@ function eatApply(db, mode, op, nowIso, info) {
 function eatClean(db, type, d) {
   function qs(q) { var o = {}; if (!q) return o; for (var id in q) { if (id !== 'pcs' && !eatItem(db, id)) continue; var n = eatNum(q[id]); o[id] = n; } return o; }
   function ncs(nc) { var o = {}; if (!nc) return o; for (var id in nc) if (nc[id]) o[id] = true; return o; }
-  if (type === 'people') return { n: Math.max(0, Math.min(5000, Math.round(Number(d.n) || 0))) };
+  if (type === 'people') {
+    var pn = function (x) { return Math.max(0, Math.min(5000, Math.round(Number(x) || 0))); }, pg = {}, gi = 0;
+    for (var gk in (d.g || {})) { var gn = eatText(gk, 40); if (gn && gi < 4) { pg[gn] = pn(d.g[gk]); gi++; } }
+    return gi ? { n: pn(d.n), g: pg } : { n: pn(d.n) };
+  }
   if (type === 'menu') { var r = []; for (var i = 0; i < (d.relish || []).length; i++) { var it = eatItem(db, d.relish[i]); if (it && it.relish && r.indexOf(it.id) < 0) r.push(it.id); } var br = !!d.bread && !!eatItem(db, 'brd'); return { mm: !!d.mm, bread: br, relish: r, veg: eatText(d.veg, 60) }; }
   function us(u) { var o = {}; if (!u) return o; for (var id in u) { var it = eatItem(db, id); if (it && it.unit !== it.use && (u[id] === 'unit' || u[id] === 'use')) o[id] = u[id]; } return o; }
   if (type === 'before' || type === 'after') { var o = { q: qs(d.q), nc: ncs(d.nc), u: us(d.u) }; if (type === 'after') { o.kept = eatNum(d.kept); o.keptNc = !!d.keptNc; } return o; }
@@ -475,4 +488,4 @@ function eatHandle(req, store) {
   for (i = 0; i < db.comments.length; i++) if (db.comments[i].rev > since && (mode === 'admin')) out.comments.push(db.comments[i]);
   return out;
 }
-if (typeof module !== 'undefined') module.exports = { eatNewDb: eatNewDb, eatApply: eatApply, eatHandle: eatHandle, eatMealUse: eatMealUse, eatNote: eatNote, eatNotes: eatNotes, eatNoteGaps: eatNoteGaps, eatNoteNo: eatNoteNo, eatUpgrade: eatUpgrade, eatConv: eatConv, eatStock: eatStock, eatCanteens: eatCanteens, eatPlaces: eatPlaces, eatDayUse: eatDayUse, eatDayMenu: eatDayMenu, eatDayRows: eatDayRows, eatUsesOfDay: eatUsesOfDay, eatNum: eatNum, eatLeft: eatLeft, eatWeekCount: eatWeekCount, eatNoteUntil: eatNoteUntil, eatPerPlate: eatPerPlate, eatRows: eatRows, eatMenuOf: eatMenuOf, eatGet: eatGet, eatKey: eatKey, eatMonday: eatMonday, eatAddDays: eatAddDays, eatToday: eatToday, eatWeekday: eatWeekday, EAT_VERSION: EAT_VERSION };
+if (typeof module !== 'undefined') module.exports = { eatNewDb: eatNewDb, eatApply: eatApply, eatHandle: eatHandle, eatMealUse: eatMealUse, eatNote: eatNote, eatNotes: eatNotes, eatNoteGaps: eatNoteGaps, eatNoteNo: eatNoteNo, eatUpgrade: eatUpgrade, eatConv: eatConv, eatStock: eatStock, eatPlates: eatPlates, eatCanteens: eatCanteens, eatPlaces: eatPlaces, eatDayUse: eatDayUse, eatDayMenu: eatDayMenu, eatDayRows: eatDayRows, eatUsesOfDay: eatUsesOfDay, eatNum: eatNum, eatLeft: eatLeft, eatWeekCount: eatWeekCount, eatNoteUntil: eatNoteUntil, eatPerPlate: eatPerPlate, eatRows: eatRows, eatMenuOf: eatMenuOf, eatGet: eatGet, eatKey: eatKey, eatMonday: eatMonday, eatAddDays: eatAddDays, eatToday: eatToday, eatWeekday: eatWeekday, EAT_VERSION: EAT_VERSION };

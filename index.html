@@ -439,21 +439,32 @@ function mealSeg() {
 
 /* ---------- people: its own tab, one number for each meal ---------- */
 function draftKey() { return 'people|' + S.sess.centre + '|' + S.date + '|' + S.meal; }
+/* a centre that cooks for another group (Luigi for Holy Family) counts each group on its own */
+function centreGroups() { var c = eatCentre(view(), S.sess.centre); return c && c.groups ? c.groups : []; }
+function curCount() { return S.f.grp ? (S.f.g[S.f.grp] || 0) : S.f.n; }
+function setCount(v) { if (S.f.grp) S.f.g[S.f.grp] = v; else S.f.n = v; }
+function pData() { var d = { n: S.f.n }, gs = centreGroups(); if (gs.length) { d.g = {}; gs.forEach(function (k) { d.g[k] = S.f.g[k] || 0; }); } return d; }
+function samePeople(e, d) { if (!e) return false; if (e.data.n !== d.n) return false; var a = e.data.g || {}, b = d.g || {}; for (var k in b) if ((a[k] || 0) !== b[k]) return false; return true; }
+function peopleLine(d) {
+  var gs = centreGroups(); if (!gs.length) return plural(d.n, 'plate', 'plates');
+  return esc(centreName(S.sess.centre)) + ' ' + d.n + gs.map(function (k) { return ' · ' + esc(k) + ' ' + ((d.g || {})[k] || 0); }).join('') + ' = ' + plural(eatPlates({ data: d }), 'plate', 'plates');
+}
 function peopleStatus() {
-  var saved = eatGet(view(), 'people', S.sess.centre, S.date, S.meal), n = S.f.n;
+  var saved = eatGet(view(), 'people', S.sess.centre, S.date, S.meal), d = pData();
   if (S.pPend) return '<span class="pill em">Saving…</span>';
-  return saved && saved.data.n === n ? '<span class="pill ok">Saved: ' + plural(n, 'plate', 'plates') + '</span>' : (n ? '<span class="pill em">Saving…</span>' : '');
+  return samePeople(saved, d) ? '<span class="pill ok">Saved: ' + peopleLine(d) + '</span>' : (eatPlates({ data: d }) ? '<span class="pill em">Saving…</span>' : '');
 }
 SCREENS.people = function () {
-  var db = view(), c = S.sess.centre, n = S.f.n;
-  var all = centreMeals().map(function (m) { var p = eatGet(db, 'people', c, S.date, m); return '<div class="row"><span class="b">' + m + '</span>' + (p ? '<span class="pill ok">' + plural(p.data.n, 'plate', 'plates') + '</span>' : '<span class="pill warn">To do</span>') + '</div>'; }).join('');
-  return dayBar() + mealSeg() +
-    '<div style="display:flex;justify-content:center;padding:18px 0 6px"><button class="tap" data-a="tap" aria-label="Add one plate"><span class="num" style="font-size:88px;font-weight:800;line-height:1" id="cnt">' + n + '</span><span style="font-size:20px;font-weight:700">Tap: +1</span></button></div>' +
+  var db = view(), c = S.sess.centre, n = curCount(), gs = centreGroups();
+  var all = centreMeals().map(function (m) { var p = eatGet(db, 'people', c, S.date, m); return '<div class="row"><span class="b">' + m + '</span>' + (p ? '<span class="pill ok">' + plural(eatPlates(p), 'plate', 'plates') + '</span>' : '<span class="pill warn">To do</span>') + '</div>'; }).join('');
+  var grp = gs.length ? '<div class="seg" role="group" aria-label="Who eats" style="grid-template-columns:repeat(' + (gs.length + 1) + ',minmax(0,1fr))">' + [''].concat(gs).map(function (k) { var on = (S.f.grp || '') === k; return '<button class="btn' + (on ? ' on' : '') + '" data-a="grp" data-g="' + esc(k) + '" aria-pressed="' + on + '">' + esc(k || centreName(c)) + ' <span class="num">' + (k ? (S.f.g[k] || 0) : S.f.n) + '</span></button>'; }).join('') + '</div>' : '';
+  return dayBar() + mealSeg() + grp +
+    '<div style="display:flex;justify-content:center;padding:18px 0 6px"><button class="tap" data-a="tap" aria-label="Add one plate' + (S.f.grp ? ' for ' + esc(S.f.grp) : '') + '"><span class="num" style="font-size:88px;font-weight:800;line-height:1" id="cnt">' + n + '</span><span style="font-size:20px;font-weight:700">' + (S.f.grp ? esc(S.f.grp) + ': +1' : 'Tap: +1') + '</span></button></div>' +
     '<div style="text-align:center" id="pst" aria-live="polite">' + peopleStatus() + '</div>' +
     '<div class="adds"><button class="btn" data-a="add" data-n="5">+5</button><button class="btn" data-a="add" data-n="10">+10</button><button class="btn" data-a="adding">Other</button></div>' +
     (S.f.adding ? '<div class="card"><label class="lab" for="an">How many more plates? (counted by hand)</label><input id="an" class="in num" type="number" inputmode="numeric" min="1" data-f="an" data-focus><button class="btn pri" data-a="addOk">Add</button></div>' : '') +
     '<button class="btn" data-a="undo">Undo the last one</button>' +
-    (S.f.typing ? '<div class="card"><label class="lab" for="tn">Number of plates in all</label><input id="tn" class="in num" type="number" inputmode="numeric" min="0" value="' + n + '" data-f="tn" data-focus><button class="btn" data-a="typeOk">OK</button></div>' : '<button class="btn link" data-a="typing">Type the number in all</button>') +
+    (S.f.typing ? '<div class="card"><label class="lab" for="tn">Number of plates in all' + (S.f.grp ? ' for ' + esc(S.f.grp) : '') + '</label><input id="tn" class="in num" type="number" inputmode="numeric" min="0" value="' + n + '" data-f="tn" data-focus><button class="btn" data-a="typeOk">OK</button></div>' : '<button class="btn link" data-a="typing">Type the number in all</button>') +
     '<span class="m s" style="text-align:center">Every change is saved by itself.</span>' +
     '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">All meals, ' + dayName(S.date) + '</span>' + all + '</div>';
 };
@@ -749,7 +760,7 @@ function weekStats(db, c) {
   cen.meals.forEach(function (m) { out.meals[m] = { plates: 0, days: 0 }; });
   for (var i = 0; i < 7; i++) {
     var d = eatAddDays(S.week, i); if (d > t) break;
-    cen.meals.forEach(function (m) { var p = eatGet(db, 'people', c, d, m); if (p) { out.meals[m].plates += p.data.n; out.meals[m].days++; } });
+    cen.meals.forEach(function (m) { var p = eatGet(db, 'people', c, d, m); if (p) { out.meals[m].plates += eatPlates(p); out.meals[m].days++; } });
     var us = eatUsesOfDay(db, c, d); out.foodDays++;
     if (us.length && us.every(function (u) { return u.skipped; })) { out.skipped++; continue; }
     if (us.some(function (u) { return u.closed; })) out.foodDone++;
@@ -804,7 +815,9 @@ SCREENS.settings = function () {
     '<button class="btn pri" data-a="nameAdd">Add</button></div></div>' +
     '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Centres and meals</span>' + eatCanteens(db).map(function (c) {
       return '<div class="row" style="flex-direction:column;align-items:stretch"><span class="b">' + esc(c.name) + '</span><div class="seg" style="grid-template-columns:repeat(3,minmax(0,1fr))">' + EAT_MEALS.map(function (m) { var on = c.meals.indexOf(m) >= 0; return '<button class="btn' + (on ? ' on' : '') + '" data-a="cmeal" data-id="' + c.id + '" data-m="' + m + '" aria-pressed="' + on + '">' + m + '</button>'; }).join('') + '</div>' +
-        '<button class="nc' + (c.left ? ' on' : '') + '" data-a="cleft" data-id="' + c.id + '" aria-pressed="' + !!c.left + '" style="align-self:flex-start;margin-top:6px">Leftovers at the end of the day: ' + (c.left ? 'counted' : 'not counted') + '</button></div>';
+        '<button class="nc' + (c.left ? ' on' : '') + '" data-a="cleft" data-id="' + c.id + '" aria-pressed="' + !!c.left + '" style="align-self:flex-start;margin-top:6px">Leftovers at the end of the day: ' + (c.left ? 'counted' : 'not counted') + '</button>' +
+        '<span class="m s" style="padding-top:6px">Also eat here (counted apart): ' + ((c.groups || []).length ? c.groups.map(function (g) { return '<button class="nc" data-a="grpOff" data-id="' + c.id + '" data-g="' + esc(g) + '" aria-label="Remove ' + esc(g) + '">' + esc(g) + ' ×</button>'; }).join(' ') : 'nobody') + '</span>' +
+        '<div style="display:flex;gap:6px;padding-top:4px"><input class="in" type="text" aria-label="A group that eats at ' + esc(c.name) + '" placeholder="Holy Family" data-f="grp_' + c.id + '" value="' + esc(S.f['grp_' + c.id] || '') + '"><button class="btn" data-a="grpAdd" data-id="' + c.id + '">Add</button></div></div>';
     }).join('') + '</div>' +
     '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Units</span>' + db.items.filter(function (it) { return it.unit !== it.use; }).map(function (it) {
       return '<div class="row"><label for="per_' + it.id + '">1 ' + esc(it.unit.replace(/s$/, '')) + ' of ' + esc(it.name.toLowerCase()) + '&nbsp;=</label><span style="display:flex;gap:6px;align-items:center"><input id="per_' + it.id + '" class="in num" style="width:90px;text-align:right" type="number" inputmode="decimal" value="' + (it.per || '') + '" data-per="' + it.id + '"><span class="m b" style="width:56px">' + esc(it.use) + '</span></span></div>';
@@ -838,8 +851,11 @@ function enter(scr) {
   if (scr === 'people') {
     var dr = KV.get('draft', {})[draftKey()];
     e = eatGet(db, 'people', c, d, m);
-    S.f = { n: dr != null ? dr : (e ? e.data.n : 0), hist: [] };
-    if (dr != null && (!e || e.data.n !== dr)) { S.pPend = { d: d, m: m, n: dr, k: draftKey() }; clearTimeout(S.pTimer); S.pTimer = setTimeout(peopleFlush, 1500); }
+    if (typeof dr === 'number') dr = { n: dr };
+    var keepGrp = S.f && S.f.grp && centreGroups().indexOf(S.f.grp) >= 0 ? S.f.grp : '';
+    var src = dr || (e ? e.data : { n: 0 });
+    S.f = { n: src.n || 0, g: JSON.parse(JSON.stringify(src.g || {})), grp: keepGrp, hist: [] };
+    if (dr && !samePeople(e, pData())) { S.pPend = { d: d, m: m, data: pData(), k: draftKey() }; clearTimeout(S.pTimer); S.pTimer = setTimeout(peopleFlush, 1500); }
   }
   if (scr === 'menu') {
     var dm = eatDayMenu(db, c, d); S.f = { meals: JSON.parse(JSON.stringify(dm.meals)) };
@@ -962,29 +978,31 @@ function fixMeal() { if (centreMeals().indexOf(S.meal) < 0) S.meal = defaultMeal
 A.meal = function (el) { peopleFlush(); S.meal = el.getAttribute('data-m'); enter(S.scr); S.keepScroll = true; render(); };
 /* people: every change is kept on the phone at once and saved 1.5 seconds after the last tap (or on leaving the screen) */
 function peopleChanged(inc) {
-  if (inc) S.f.hist.push(inc);
-  var dr = KV.get('draft', {}); dr[draftKey()] = S.f.n; KV.set('draft', dr);
-  S.pPend = { d: S.date, m: S.meal, n: S.f.n, k: draftKey() };
+  if (inc) S.f.hist.push({ g: S.f.grp || '', k: inc });
+  var d = pData(), dr = KV.get('draft', {}); dr[draftKey()] = d; KV.set('draft', dr);
+  S.pPend = { d: S.date, m: S.meal, data: d, k: draftKey() };
   clearTimeout(S.pTimer); S.pTimer = setTimeout(peopleFlush, 1500);
   var c = document.getElementById('cnt'), st = document.getElementById('pst');
-  if (c) c.textContent = S.f.n; if (st) st.innerHTML = peopleStatus();
+  if (c) c.textContent = curCount(); if (st) st.innerHTML = peopleStatus();
+  var sb = document.querySelector('[data-a="grp"][aria-pressed="true"] .num'); if (sb) sb.textContent = curCount();
 }
 function peopleFlush() {
   clearTimeout(S.pTimer); S.pTimer = null;
   var p = S.pPend; if (!p || !S.sess) return; S.pPend = null;
   var saved = eatGet(view(), 'people', S.sess.centre, p.d, p.m);
-  if (!saved || saved.data.n !== p.n) saveEntry('people', p.m, { n: p.n }, p.d);
+  if (!samePeople(saved, p.data)) saveEntry('people', p.m, p.data, p.d);
   var dr = KV.get('draft', {}); delete dr[p.k]; KV.set('draft', dr);
   var st = document.getElementById('pst'); if (st && S.scr === 'people') st.innerHTML = peopleStatus();
 }
 function ringTap() { var b = document.querySelector('.tap'); if (!b) return; b.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit'); }
-A.tap = function () { vibrate(); ringTap(); S.f.n++; peopleChanged(1); };
-A.add = function (el) { var k = Number(el.getAttribute('data-n')); vibrate(); ringTap(); S.f.n += k; peopleChanged(k); };
+A.tap = function () { vibrate(); ringTap(); setCount(curCount() + 1); peopleChanged(1); };
+A.grp = function (el) { S.f.grp = el.getAttribute('data-g'); S.keepScroll = true; render(); };
+A.add = function (el) { var k = Number(el.getAttribute('data-n')); vibrate(); ringTap(); setCount(curCount() + k); peopleChanged(k); };
 A.adding = function () { S.f.adding = !S.f.adding; S.f.an = ''; S.keepScroll = true; render(); };
-A.addOk = function () { var k = Math.round(Number(S.f.an)); if (isFinite(k) && k > 0 && k < 2000) { S.f.n += k; S.f.adding = false; peopleChanged(k); } S.keepScroll = true; render(); };
-A.undo = function () { var k = S.f.hist.length ? S.f.hist.pop() : 1; S.f.n = Math.max(0, S.f.n - k); peopleChanged(0); };
+A.addOk = function () { var k = Math.round(Number(S.f.an)); if (isFinite(k) && k > 0 && k < 2000) { setCount(curCount() + k); S.f.adding = false; peopleChanged(k); } S.keepScroll = true; render(); };
+A.undo = function () { var h = S.f.hist.length ? S.f.hist.pop() : { g: S.f.grp || '', k: 1 }; var keep = S.f.grp; S.f.grp = h.g; setCount(Math.max(0, curCount() - h.k)); peopleChanged(0); S.f.grp = keep; S.keepScroll = true; render(); };
 A.typing = function () { S.f.typing = true; S.keepScroll = true; render(); };
-A.typeOk = function () { var n = Math.round(Number(S.f.tn)); if (isFinite(n) && n >= 0) { S.f.hist = []; S.f.n = n; peopleChanged(0); } S.f.typing = false; S.keepScroll = true; render(); };
+A.typeOk = function () { var n = Math.round(Number(S.f.tn)); if (isFinite(n) && n >= 0) { S.f.hist = []; setCount(n); peopleChanged(0); } S.f.typing = false; S.keepScroll = true; render(); };
 A.skip = function (el) { saveEntry('dskip', '', { on: el.getAttribute('data-on') === '1' }); S.keepScroll = true; render(); };
 A.bfm = function (el) { var x = S.f.meals.Breakfast, v = el.getAttribute('data-v'); x.mm = v === 'mm'; x.isOther = v === 'other'; S.keepScroll = true; render(); };
 A.mmm = function (el) { var x = S.f.meals[el.getAttribute('data-m')]; x.mm = !x.mm; S.keepScroll = true; render(); };
@@ -1112,6 +1130,8 @@ A.readerKey = function () {
     S.keepScroll = true; render();
   }).catch(function () { S.notice = 'Saving the key needs internet.'; render(); });
 };
+A.grpAdd = function (el) { var c = eatCentre(view(), el.getAttribute('data-id')), t = (S.f['grp_' + c.id] || '').trim(); if (!t) return; queue({ kind: 'centre_groups', cid: c.id, groups: (c.groups || []).concat([t]) }); S.f['grp_' + c.id] = ''; S.keepScroll = true; render(); };
+A.grpOff = function (el) { var c = eatCentre(view(), el.getAttribute('data-id')), g = el.getAttribute('data-g'); if (!confirm('Remove ' + g + ' from ' + c.name + '?')) return; queue({ kind: 'centre_groups', cid: c.id, groups: (c.groups || []).filter(function (x) { return x !== g; }) }); S.keepScroll = true; render(); };
 A.cleft = function (el) { var c = eatCentre(view(), el.getAttribute('data-id')); queue({ kind: 'centre_left', cid: c.id, on: !c.left }); S.keepScroll = true; render(); };
 A.cmeal = function (el) {
   var c = eatCentre(view(), el.getAttribute('data-id')), m = el.getAttribute('data-m'), ms = c.meals.slice(), i = ms.indexOf(m);
@@ -1224,7 +1244,7 @@ function makeXlsx(sheets) {
 function saveFile(name, blob) { try { var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); } catch (e) { S.notice = 'This screen cannot save files.'; render(); } }
 function exportXlsx() {
   var db = view(), E = db.entries.filter(function (e) { return !e.del; }).sort(function (a, b) { return (a.date + a.centre + EAT_MEALS.indexOf(a.meal)) < (b.date + b.centre + EAT_MEALS.indexOf(b.meal)) ? -1 : 1; });
-  var people = { name: 'People', head: ['Date', 'Day', 'Centre', 'Meal', 'Plates', 'Counted by', 'Saved at'], rows: [] };
+  var people = { name: 'People', head: ['Date', 'Day', 'Centre', 'Meal', 'Plates', 'Of which', 'Counted by', 'Saved at'], rows: [] };
   var day = { name: 'Food a day', head: ['Date', 'Day', 'Centre', 'Menu', 'Item', 'Taken out', 'Left at the end of the day', 'Unit written', 'Used', 'Unit', 'Plates of the day', 'Amount a plate', 'Food not counted'], rows: [] };
   var food = { name: 'Food a meal (old)', head: ['Date', 'Day', 'Centre', 'Meal', 'Menu', 'Item', 'Before', 'Back', 'Unit written', 'Used', 'Unit', 'Plates', 'Kept for later meal', 'Amount a plate', 'Food not counted'], rows: [] };
   var rec = { name: 'Delivery notes', head: ['Note no.', 'Date', 'Day', 'Centre', 'Item', 'Quantity', 'Unit', 'Should last (days)', 'Until', 'Remark', 'Received by', 'Copied by'], rows: [] };
@@ -1232,7 +1252,7 @@ function exportXlsx() {
   var seen = {};
   E.forEach(function (e) {
     var c = centreName(e.centre);
-    if (e.type === 'people') people.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, e.data.n, e.byName, localTime(e.saved)]);
+    if (e.type === 'people') people.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, eatPlates(e), e.data.g ? e.data.n + ' ' + c + Object.keys(e.data.g).map(function (k) { return ', ' + e.data.g[k] + ' ' + k; }).join('') : '', e.byName, localTime(e.saved)]);
     if ((e.type === 'dbefore' || e.type === 'dskip') && !seen['d' + e.centre + e.date]) {
       seen['d' + e.centre + e.date] = 1;
       var du = eatDayUse(db, e.centre, e.date), db0 = eatGet(db, 'dbefore', e.centre, e.date, ''), da = eatLeft(db, e.centre) ? eatGet(db, 'dafter', e.centre, e.date, '') : null, dmt = dayMenuText(db, eatDayMenu(db, e.centre, e.date));
