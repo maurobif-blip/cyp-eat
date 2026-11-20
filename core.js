@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.10';
+var EAT_VERSION = 'alpha 0.11';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 var EAT_ROLES = ['Volunteer', 'Canteen', 'Educator'];
 /* three accesses: entry (people and food), delivery (photos of the delivery notes), admin (overview) */
@@ -96,6 +96,36 @@ function eatItemsOf(db) { return db.items; }
 function eatItem(db, id) { return eatFind(db.items, id); }
 function eatCentre(db, id) { return eatFind(db.centres, id); }
 /* centres with a canteen (people and food are counted); places only receive deliveries */
+/* The place written by hand on a delivery note ("Misundu Canteen", "S.S. Luigi Canteen") -> the id of the centre or place, or ''.
+   Spelling slips are accepted: up to one letter in four. A group that eats at a centre (Holy Family) gives that centre. */
+function eatPlaceNorm(t) {
+  var w = String(t || '').toLowerCase().replace(/[^a-z ]/g, ' ').split(/\s+/), out = [];
+  for (var i = 0; i < w.length; i++) if (w[i] && ['canteen', 'centre', 'center', 'ss', 's', 'kitchen', 'the', 'ms', 'm'].indexOf(w[i]) < 0) out.push(w[i]);
+  return out.join(' ');
+}
+function eatLev(a, b) {
+  var prev = [], cur, i, j; for (j = 0; j <= b.length; j++) prev[j] = j;
+  for (i = 1; i <= a.length; i++) { cur = [i]; for (j = 1; j <= b.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a.charAt(i - 1) === b.charAt(j - 1) ? 0 : 1)); prev = cur; }
+  return prev[b.length];
+}
+function eatPlaceMatch(db, text) {
+  var t = eatPlaceNorm(text), best = '', bestD = 99; if (!t) return '';
+  var tw = t.split(' '), ps = eatPlaces(db);
+  /* one word of a name against the words written: the smallest number of wrong letters, or 99 when too many */
+  function word(w) { var lim = w.length < 4 ? 0 : (w.length < 8 ? 1 : 2), m = 99; for (var k = 0; k < tw.length; k++) m = Math.min(m, eatLev(w, tw[k])); return m <= lim ? m : 99; }
+  for (var i = 0; i < ps.length; i++) {
+    var names = ps[i].name.split('/').concat(ps[i].groups || []);
+    for (var j = 0; j < names.length; j++) {
+      var n = eatPlaceNorm(names[j]); if (!n) continue;
+      var nw = n.split(' '), d = word(nw[0]);
+      /* a long first word is enough (Minsundu, Chinika); a short one (Mary, Holy) needs the other words too */
+      if (nw[0].length < 5) for (var x = 1; x < nw.length; x++) d += word(nw[x]);
+      if (t === n) d = 0;
+      if (d < bestD && d < 99) { best = ps[i].id; bestD = d; }
+    }
+  }
+  return best;
+}
 /* the plates of one meal: the centre's own, and the groups that eat food cooked there (Luigi cooks for Holy Family) */
 function eatPlates(p) { var t = p.data.n || 0, g = p.data.g || {}; for (var k in g) t += g[k] || 0; return t; }
 function eatCanteens(db) { var o = []; for (var i = 0; i < db.centres.length; i++) if (!db.centres[i].place && !db.centres[i].off) o.push(db.centres[i]); return o; }
@@ -510,4 +540,4 @@ function eatHandle(req, store) {
   for (i = 0; i < db.comments.length; i++) if (db.comments[i].rev > since && (mode === 'admin')) out.comments.push(db.comments[i]);
   return out;
 }
-if (typeof module !== 'undefined') module.exports = { eatNewDb: eatNewDb, eatApply: eatApply, eatHandle: eatHandle, eatMealUse: eatMealUse, eatNote: eatNote, eatNotes: eatNotes, eatNoteGaps: eatNoteGaps, eatNoteNo: eatNoteNo, eatUpgrade: eatUpgrade, eatConv: eatConv, eatStock: eatStock, eatNoteQ: eatNoteQ, eatNoteHas: eatNoteHas, eatPlates: eatPlates, eatCanteens: eatCanteens, eatPlaces: eatPlaces, eatDayUse: eatDayUse, eatDayMenu: eatDayMenu, eatDayRows: eatDayRows, eatUsesOfDay: eatUsesOfDay, eatNum: eatNum, eatLeft: eatLeft, eatWeekCount: eatWeekCount, eatNoteUntil: eatNoteUntil, eatPerPlate: eatPerPlate, eatRows: eatRows, eatMenuOf: eatMenuOf, eatGet: eatGet, eatKey: eatKey, eatMonday: eatMonday, eatAddDays: eatAddDays, eatToday: eatToday, eatWeekday: eatWeekday, EAT_VERSION: EAT_VERSION };
+if (typeof module !== 'undefined') module.exports = { eatNewDb: eatNewDb, eatApply: eatApply, eatHandle: eatHandle, eatMealUse: eatMealUse, eatNote: eatNote, eatNotes: eatNotes, eatNoteGaps: eatNoteGaps, eatNoteNo: eatNoteNo, eatUpgrade: eatUpgrade, eatConv: eatConv, eatStock: eatStock, eatPlaceMatch: eatPlaceMatch, eatNoteQ: eatNoteQ, eatNoteHas: eatNoteHas, eatPlates: eatPlates, eatCanteens: eatCanteens, eatPlaces: eatPlaces, eatDayUse: eatDayUse, eatDayMenu: eatDayMenu, eatDayRows: eatDayRows, eatUsesOfDay: eatUsesOfDay, eatNum: eatNum, eatLeft: eatLeft, eatWeekCount: eatWeekCount, eatNoteUntil: eatNoteUntil, eatPerPlate: eatPerPlate, eatRows: eatRows, eatMenuOf: eatMenuOf, eatGet: eatGet, eatKey: eatKey, eatMonday: eatMonday, eatAddDays: eatAddDays, eatToday: eatToday, eatWeekday: eatWeekday, EAT_VERSION: EAT_VERSION };
