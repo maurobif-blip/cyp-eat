@@ -483,12 +483,12 @@ function dayPickScreen() {
     cells += '<button class="btn' + (on ? ' on' : '') + (ds === t ? ' tod' : '') + '" data-a="calDay" data-d="' + ds + '" aria-pressed="' + on + '" aria-label="' + dayName(ds) + (ds === t ? ', today' : '') + (st ? ', ' + (st === 'done' ? 'all meals finished' : 'counting') : '') + '"' + (fut ? ' disabled' : '') + '>' + d + (st ? '<span class="sd s-' + st + '"></span>' : '') + '</button>';
   }
   var cur = m0 === t.slice(0, 8) + '01', isT = pick === t;
-  return '<h1>Which day are you counting?</h1><span class="m">' + esc(centreName(c)) + '. Look at the day, then confirm.</span>' +
+  return '<h1>Which day are you counting?</h1><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap"><span>Centre: <span class="b">' + esc(centreName(c)) + '</span></span><button class="btn" data-a="centreAsk" style="min-height:44px">Change the centre</button></div><span class="m">Look at the day, then confirm.</span>' +
     '<div class="card"><div style="display:flex;align-items:center;justify-content:space-between"><button class="btn sq" data-a="calMonth" data-d="-1" aria-label="Month before">' + ic('back') + '</button><span class="b" style="font-size:20px">' + MONTHS[mo - 1] + ' ' + y + '</span>' + (cur ? '<span style="width:48px"></span>' : '<button class="btn sq" data-a="calMonth" data-d="1" aria-label="Month after">' + ic('next') + '</button>') + '</div>' +
     '<div class="cal">' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(function (h) { return '<span class="h">' + h + '</span>'; }).join('') + cells + '</div>' +
     '<span class="m s" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap"><span class="sd s-count"></span>counting <span class="sd s-done" style="margin-left:10px"></span>all meals finished</span></div>' +
     '<div class="box ' + (isT ? 'ok' : 'em') + '" role="status" style="font-size:20px;text-align:center"><span class="b">' + dayName(pick) + '</span> · ' + (isT ? 'today' : (pick === eatAddDays(t, -1) ? 'yesterday, not today' : 'not today')) + '</div>' +
-    '<button class="btn big" data-a="dayConfirm" style="min-height:72px;font-size:20px;background:var(--ok-ink);border-color:var(--ok-ink);color:#fff">' + ic('check') + 'Yes, count ' + dayName(pick) + '</button>' +
+    '<button class="btn big" data-a="dayConfirm" style="min-height:72px;font-size:20px;background:var(--ok-ink);border-color:var(--ok-ink);color:#fff">' + ic('check') + 'Yes, count ' + dayName(pick) + ' · ' + esc(centreName(c)) + '</button>' +
     (isT ? '' : '<button class="btn" data-a="calToday">Back to today</button>');
 }
 function mealSeg() {
@@ -1059,8 +1059,7 @@ function startSession() {
   if (S.sess.mode === 'admin') { S.scr = 'overview'; }
   else if (S.sess.mode === 'delivery') { S.dv = { step: 'start' }; S.scr = 'deliver'; }
   else if (!S.sess.nid) S.scr = 'name';
-  else if (!S.sess.centre) S.scr = 'centre';
-  else { S.meal = defaultMeal(); S.scr = 'people'; }
+  else S.scr = 'centre'; /* every time the app is opened: which centre, then which day */
   enter(S.scr); render(); sync();
   setTimeout(installAsk, 1500);
 }
@@ -1149,6 +1148,7 @@ A.pickName = function (el) { var n = eatFind(view().names, el.getAttribute('data
 A.pickCentre = function (el) { S.sess.centre = el.getAttribute('data-id'); remember(); S.meal = defaultMeal(); go('people'); };
 A.who = function () { S.scr = 'name'; render(); };
 A.signout = function () { signOut(''); };
+A.centreAsk = function () { peopleFlush(); S.scr = 'centre'; S.f = {}; render(); };
 A.dayAsk = function () { peopleFlush(); askDay(true); render(); };
 A.calDay = function (el) { var d = el.getAttribute('data-d'); if (!eatIsDate(d) || d > todayStr()) return; S.pick = d; S.keepScroll = true; render(); };
 A.calMonth = function (el) { var y = Number(S.calM.slice(0, 4)), m = Number(S.calM.slice(5, 7)) - 1 + Number(el.getAttribute('data-d')); var dt = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 8) + '01'; if (dt > todayStr()) return; S.calM = dt; S.keepScroll = true; render(); };
@@ -1557,7 +1557,8 @@ document.addEventListener('visibilitychange', function () {
   if (document.visibilityState === 'hidden') { peopleFlush(); S.hiddenAt = Date.now(); return; }
   if (!S.sess) return;
   var away = S.hiddenAt ? Date.now() - S.hiddenAt : 0; S.hiddenAt = 0;
-  newDay(); if (away > 30 * 60000 && S.dayOk && S.sess.mode === 'entry') { askDay(true); bgRender(); }
+  /* back after 30 minutes: the day is asked again; from the count of the people (saved by itself) the centre too */
+  newDay(); if (away > 30 * 60000 && S.dayOk && S.sess.mode === 'entry') { askDay(true); if (S.scr === 'people') { peopleFlush(); S.scr = 'centre'; } bgRender(); }
   sync();
 });
 window.addEventListener('pagehide', function () { peopleFlush(); });
