@@ -1,10 +1,12 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.11';
+var EAT_VERSION = 'alpha 0.12';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 var EAT_ROLES = ['Volunteer', 'Canteen', 'Educator'];
 /* three accesses: entry (people and food), delivery (photos of the delivery notes), admin (overview) */
 var EAT_MODES = ['entry', 'delivery', 'admin'];
+/* how the store can count a food: in its own unit (kg, chickens, eggs…) or in a container, with how much one container holds */
+var EAT_PACKS = ['bags', 'trays', 'cans', 'packs', 'pieces'];
 var EAT_TYPES = ['people', 'menu', 'before', 'after', 'skip', 'received', 'endweek', 'note', 'startweek', 'dmenu', 'dbefore', 'dafter', 'dskip'];
 /* the food is counted for the whole day: dmenu (all meals at once), dbefore (quantities for today), dafter (left at the end of the day), dskip.
    The old types menu, before, after, skip (one meal) are still read. */
@@ -18,7 +20,7 @@ function eatDefaultItems() {
     { id: 'chk', name: 'Chicken', unit: 'chickens', use: 'chickens', per: 1, stock: true, relish: true },
     { id: 'egg', name: 'Eggs', unit: 'trays', use: 'eggs', per: 30, stock: true, relish: true },
     { id: 'fsh', name: 'Fish', unit: 'kg', use: 'kg', per: 1, stock: true, relish: true },
-    { id: 'bea', name: 'Beans', unit: 'bags', use: 'kg', per: 0, stock: true, relish: true },
+    { id: 'bea', name: 'Beans', unit: 'cans', use: 'kg', per: 0, stock: true, relish: true },
     { id: 'prk', name: 'Pork', unit: 'kg', use: 'kg', per: 1, stock: true, relish: true },
     { id: 'sau', name: 'Sausages', unit: 'sausages', use: 'sausages', per: 1, stock: true, relish: true },
     { id: 'veg', name: 'Vegetables', unit: 'kg', use: 'kg', per: 1, stock: false },
@@ -383,6 +385,15 @@ function eatApply(db, mode, op, nowIso, info) {
     info.audit.push({ time: nowIso, who: 'Overview', action: 'Name added', detail: nm + ' (' + role + ')' });
     return { ok: true };
   }
+  if (k === 'name_edit') {
+    var ne = eatFind(db.names, op.nid), nn2 = eatText(op.name, 60); if (!ne || !ne.active) return { ok: false, error: 'id' };
+    if (!nn2) return { ok: false, error: 'fields' };
+    for (i = 0; i < db.names.length; i++) if (db.names[i] !== ne && db.names[i].active && db.names[i].name.toLowerCase() === nn2.toLowerCase()) return { ok: false, error: 'same' };
+    var was = ne.name + ' (' + ne.role + ')';
+    ne.name = nn2; if (EAT_ROLES.indexOf(op.role) >= 0) ne.role = op.role; bump(ne);
+    info.audit.push({ time: nowIso, who: 'Overview', action: 'Name changed', detail: was + ' -> ' + ne.name + ' (' + ne.role + ')' });
+    return { ok: true };
+  }
   if (k === 'name_off') {
     var no = eatFind(db.names, op.nid); if (!no) return { ok: false, error: 'id' };
     no.active = false; bump(no);
@@ -425,6 +436,17 @@ function eatApply(db, mode, op, nowIso, info) {
     info.audit.push({ time: nowIso, who: 'Overview', action: 'Leftovers', detail: cl.name + (cl.left ? ': counted at the end of the day' : ': not counted') });
     return { ok: true };
   }
+  /* the unit of a food in the store: its own unit (kg, chickens…) or a container (bags, trays, cans, packs) and how much one holds */
+  if (k === 'item_unit') {
+    var iu = eatItem(db, op.iid); if (!iu) return { ok: false, error: 'id' };
+    var un = String(op.unit || '');
+    if (un === iu.use) { iu.unit = iu.use; iu.per = 1; }
+    else if (EAT_PACKS.indexOf(un) >= 0) { var pr = eatNum(op.per); iu.unit = un; iu.per = pr == null ? 0 : pr; }
+    else return { ok: false, error: 'fields' };
+    bump(iu);
+    info.audit.push({ time: nowIso, who: 'Overview', action: 'Unit changed', detail: iu.name + ': counted in ' + iu.unit + (iu.unit !== iu.use ? ', 1 ' + iu.unit.replace(/s$/, '') + ' = ' + (iu.per || '?') + ' ' + iu.use : '') });
+    return { ok: true };
+  }
   if (k === 'item_per') {
     var it = eatItem(db, op.iid); if (!it) return { ok: false, error: 'id' };
     var per = eatNum(op.per); if (per == null) return { ok: false, error: 'fields' };
@@ -449,7 +471,7 @@ function eatClean(db, type, d) {
   if (type === 'people') {
     var pn = function (x) { return Math.max(0, Math.min(5000, Math.round(Number(x) || 0))); }, pg = {}, gi = 0;
     for (var gk in (d.g || {})) { var gn = eatText(gk, 40); if (gn && gi < 4) { pg[gn] = pn(d.g[gk]); gi++; } }
-    return gi ? { n: pn(d.n), g: pg } : { n: pn(d.n) };
+    var pd = gi ? { n: pn(d.n), g: pg } : { n: pn(d.n) }; if (d.done) pd.done = true; return pd;
   }
   if (type === 'menu') { var r = []; for (var i = 0; i < (d.relish || []).length; i++) { var it = eatItem(db, d.relish[i]); if (it && it.relish && r.indexOf(it.id) < 0) r.push(it.id); } var br = !!d.bread && !!eatItem(db, 'brd'); return { mm: !!d.mm, bread: br, relish: r, veg: eatText(d.veg, 60) }; }
   function us(u) { var o = {}; if (!u) return o; for (var id in u) { var it = eatItem(db, id); if (it && it.unit !== it.use && (u[id] === 'unit' || u[id] === 'use')) o[id] = u[id]; } return o; }
