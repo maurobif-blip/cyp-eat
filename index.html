@@ -73,6 +73,8 @@ svg.ic{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;strok
 .pill.bad{background:var(--bad-bg);color:var(--bad-ink)}
 .tap.s-none{background:var(--bad);box-shadow:0 6px 0 #7A1712} .tap.s-count{background:var(--cnt);box-shadow:0 6px 0 #7A3700} .tap.s-done{background:var(--ok-ink);box-shadow:0 6px 0 #0B3D06}
 .tap.s-none:active,.tap.s-count:active,.tap.s-done:active{box-shadow:0 2px 0 rgba(0,0,0,.45)}
+.btn.red{background:var(--bad-bg);border:2px solid var(--bad);color:var(--bad-ink)}
+.tap.s-skip{background:#5B6470;box-shadow:0 6px 0 #3A4049} .sd.s-skip{background:#5B6470}
 .sd{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;border:2px solid #fff;flex-shrink:0} .sd.s-none{background:var(--bad)} .sd.s-count{background:var(--cnt)} .sd.s-done{background:var(--ok-ink)}
 .tap{position:relative;-webkit-tap-highlight-color:transparent;outline:none}
 .tap:focus-visible{box-shadow:0 6px 0 #08467A,0 0 0 5px var(--em)}
@@ -460,12 +462,11 @@ SCREENS.centre = function () {
 };
 
 /* ---------- day bar ---------- */
+/* the day is not changed with arrows: a tap on the day opens the calendar, where the day is confirmed (comment of 20/11, against wrong days) */
 function dayBar() {
   var t = todayStr(), isT = S.date === t;
-  return '<div class="daybar ' + (isT ? 'today' : 'past') + '"><button class="btn sq" style="border:0" data-a="day" data-d="-1" aria-label="Day before">' + ic('back') + '</button>' +
-    '<button data-a="dayAsk" aria-label="' + dayName(S.date) + ': open the calendar to change the day" style="background:none;border:0;font:inherit;color:inherit;display:flex;flex-direction:column;align-items:center;cursor:pointer;padding:2px 8px;min-height:48px"><span class="b" style="font-size:20px;display:flex;align-items:center;gap:6px">' + ic('cal') + dayName(S.date) + '</span><span class="s b" style="color:' + (isT ? 'var(--ok-ink)' : 'var(--em-ink)') + '">' + (isT ? 'Today' : (S.date === eatAddDays(t, -1) ? 'Yesterday' : 'Not today')) + ' · <span style="text-decoration:underline">choose the day</span></span></button>' +
-    (isT ? '<span style="width:48px"></span>' : '<button class="btn sq" style="border:0" data-a="day" data-d="1" aria-label="Day after">' + ic('next') + '</button>') + '</div>' +
-    (isT ? '' : '<button class="btn link" data-a="day" data-d="0">Back to today</button>');
+  return '<div class="daybar ' + (isT ? 'today' : 'past') + '" style="justify-content:center">' +
+    '<button data-a="dayAsk" aria-label="' + dayName(S.date) + ': open the calendar to change the day" style="background:none;border:0;font:inherit;color:inherit;display:flex;flex-direction:column;align-items:center;cursor:pointer;padding:2px 8px;min-height:48px;width:100%"><span class="b" style="font-size:20px;display:flex;align-items:center;gap:6px">' + ic('cal') + dayName(S.date) + '</span><span class="s b" style="color:' + (isT ? 'var(--ok-ink)' : 'var(--em-ink)') + '">' + (isT ? 'Today' : (S.date === eatAddDays(t, -1) ? 'Yesterday' : 'Not today')) + ' · <span style="text-decoration:underline">choose the day</span></span></button></div>';
 }
 /* before counting, the person sees the calendar and confirms the day (comments of 20/11: people think more and make fewer mistakes).
    Asked at each sign in, when the date changes, after 30 minutes away, and from the day bar */
@@ -503,24 +504,25 @@ function draftKey() { return 'people|' + S.sess.centre + '|' + S.date + '|' + S.
 function centreGroups() { var c = eatCentre(view(), S.sess.centre); return c && c.groups ? c.groups : []; }
 function curCount() { return S.f.grp ? (S.f.g[S.f.grp] || 0) : S.f.n; }
 function setCount(v) { if (S.f.grp) S.f.g[S.f.grp] = v; else S.f.n = v; }
-function pData() { var d = { n: S.f.n }, gs = centreGroups(); if (gs.length) { d.g = {}; gs.forEach(function (k) { d.g[k] = S.f.g[k] || 0; }); } if (S.f.done) d.done = true; return d; }
-function samePeople(e, d) { if (!e) return false; if (e.data.n !== d.n || !!e.data.done !== !!d.done) return false; var a = e.data.g || {}, b = d.g || {}; for (var k in b) if ((a[k] || 0) !== b[k]) return false; return true; }
+function pData() { var d = { n: S.f.skip ? 0 : S.f.n }, gs = centreGroups(); if (gs.length) { d.g = {}; gs.forEach(function (k) { d.g[k] = S.f.skip ? 0 : (S.f.g[k] || 0); }); } if (S.f.skip) d.skip = true; else if (S.f.done) d.done = true; return d; }
+function samePeople(e, d) { if (!e) return false; if (e.data.n !== d.n || !!e.data.done !== !!d.done || !!e.data.skip !== !!d.skip) return false; var a = e.data.g || {}, b = d.g || {}; for (var k in b) if ((a[k] || 0) !== b[k]) return false; return true; }
 function peopleLine(d) {
   var gs = centreGroups(); if (!gs.length) return plural(d.n, 'plate', 'plates');
   return esc(centreName(S.sess.centre)) + ' ' + d.n + gs.map(function (k) { return ' · ' + esc(k) + ' ' + ((d.g || {})[k] || 0); }).join('') + ' = ' + plural(eatPlates({ data: d }), 'plate', 'plates');
 }
 /* the state of a count: none (not counted), count (counting), done (finished) */
-var STLAB = { none: 'Not counted', count: 'Counting', done: 'Finished' }, STPILL = { none: 'bad', count: 'em', done: 'ok' };
-function savedState(p) { return !p ? 'none' : (p.data.done ? 'done' : 'count'); }
-function curState() { var saved = eatGet(view(), 'people', S.sess.centre, S.date, S.meal); return S.f.done ? 'done' : (saved || S.pPend || eatPlates({ data: pData() }) ? 'count' : 'none'); }
+var STLAB = { none: 'Not counted', count: 'Counting', done: 'Finished', skip: 'People not counted' }, STPILL = { none: 'bad', count: 'em', done: 'ok', skip: 'off' };
+function savedState(p) { return !p ? 'none' : (p.data.skip ? 'skip' : (p.data.done ? 'done' : 'count')); }
+function curState() { var saved = eatGet(view(), 'people', S.sess.centre, S.date, S.meal); return S.f.skip ? 'skip' : (S.f.done ? 'done' : (saved || S.pPend || eatPlates({ data: pData() }) ? 'count' : 'none')); }
 function peopleStatus() {
   var saved = eatGet(view(), 'people', S.sess.centre, S.date, S.meal), d = pData(), st = curState();
   if (st === 'none') return '<span class="pill bad">Not counted</span>';
+  if (st === 'skip') return '<span class="pill off">People not counted' + (S.pPend || !samePeople(saved, d) ? ' · saving…' : ' · saved') + '</span>';
   return '<span class="pill ' + STPILL[st] + '">' + STLAB[st] + ': ' + peopleLine(d) + (S.pPend || !samePeople(saved, d) ? ' · saving…' : ' · saved') + '</span>';
 }
 SCREENS.people = function () {
   var db = view(), c = S.sess.centre, n = curCount(), gs = centreGroups(), st = curState();
-  var all = countMeals().map(function (m) { var p = eatGet(db, 'people', c, S.date, m), ms = m === S.meal ? st : savedState(p), pl = m === S.meal ? eatPlates({ data: pData() }) : (p ? eatPlates(p) : 0); return '<div class="row"><span class="b">' + m + '</span><span class="pill ' + STPILL[ms] + '">' + STLAB[ms] + (ms === 'none' ? '' : ': ' + plural(pl, 'plate', 'plates')) + '</span></div>'; }).join('');
+  var all = countMeals().map(function (m) { var p = eatGet(db, 'people', c, S.date, m), ms = m === S.meal ? st : savedState(p), pl = m === S.meal ? eatPlates({ data: pData() }) : (p ? eatPlates(p) : 0); return '<div class="row"><span class="b">' + m + '</span><span class="pill ' + STPILL[ms] + '">' + STLAB[ms] + (ms === 'none' || ms === 'skip' ? '' : ': ' + plural(pl, 'plate', 'plates')) + '</span></div>'; }).join('');
   var grp = gs.length ? '<div class="seg" role="group" aria-label="Who eats" style="grid-template-columns:repeat(' + (gs.length + 1) + ',minmax(0,1fr))">' + [''].concat(gs).map(function (k) { var on = (S.f.grp || '') === k; return '<button class="btn' + (on ? ' on' : '') + '" data-a="grp" data-g="' + esc(k) + '" aria-pressed="' + on + '">' + esc(k || centreName(c)) + ' <span class="num">' + (k ? (S.f.g[k] || 0) : S.f.n) + '</span></button>'; }).join('') + '</div>' : '';
   return dayBar() + mealSeg() + grp +
     '<div style="display:flex;justify-content:center;padding:18px 0 6px"><button class="tap s-' + st + '" data-a="tap" aria-label="Add one plate' + (S.f.grp ? ' for ' + esc(S.f.grp) : '') + '"><span class="num" style="font-size:88px;font-weight:800;line-height:1" id="cnt">' + n + '</span><span style="font-size:20px;font-weight:700">' + (S.f.grp ? esc(S.f.grp) + ': +1' : 'Tap: +1') + '</span></button></div>' +
@@ -529,15 +531,21 @@ SCREENS.people = function () {
     '<div class="adds"><button class="btn" data-a="add" data-n="5">+5</button><button class="btn" data-a="add" data-n="10">+10</button><button class="btn" data-a="adding">Other</button></div>' +
     (S.f.adding ? '<div class="card"><label class="lab" for="an">How many more plates? (counted by hand)</label><input id="an" class="in num" type="number" inputmode="numeric" min="1" data-f="an" data-focus><button class="btn pri" data-a="addOk">Add</button></div>' : '') +
     '<button class="btn" data-a="undo">Undo the last one</button>' +
-    (st === 'done' ? '<div class="box ok" role="status">' + S.meal + ' is finished: ' + peopleLine(pData()) + '. A new tap opens the count again.</div>' + (eatLeft(db, c) ? '<button class="btn pri big" data-a="go" data-to="after">Next: leftovers</button>' : '')
+    (st === 'skip' ? '<div class="box em" role="status">The people were not counted for ' + S.meal.toLowerCase() + ' on ' + dayName(S.date) + '. A tap on the big button opens the count again.</div>' : '') +
+    (st === 'skip' ? '' : st === 'done' ? '<div class="box ok" role="status">' + S.meal + ' is finished: ' + peopleLine(pData()) + '. A new tap opens the count again.</div>' + (eatLeft(db, c) ? '<button class="btn pri big" data-a="go" data-to="after">Next: leftovers</button>' : '')
       : '<button class="btn big" data-a="finish" style="background:var(--ok-ink);border-color:var(--ok-ink);color:#fff">' + ic('check') + 'Finish ' + S.meal.toLowerCase() + '</button>') +
     (S.f.typing ? '<div class="card"><label class="lab" for="tn">Number of plates in all' + (S.f.grp ? ' for ' + esc(S.f.grp) : '') + '</label><input id="tn" class="in num" type="number" inputmode="numeric" min="0" value="' + n + '" data-f="tn" data-focus><button class="btn" data-a="typeOk">OK</button></div>' : '<button class="btn link" data-a="typing">Type the number in all</button>') +
     '<span class="m s" style="text-align:center">Every change is saved by itself. Press Finish when the meal is over.</span>' +
     '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">All meals, ' + dayName(S.date) + '</span>' + all +
-      fixedMeals().map(function (m) { return '<div class="row"><span class="b">' + m + '</span><span class="pill">' + eatFixed(db, c, m) + ' plates every day · not counted</span></div>'; }).join('') + '</div>';
+      fixedMeals().map(function (m) { return '<div class="row"><span class="b">' + m + '</span><span class="pill">' + eatFixed(db, c, m) + ' plates every day · not counted</span></div>'; }).join('') + '</div>' +
+    /* at the bottom, in red: the meal was served but nobody counted */
+    (st === 'skip' ? '' : (S.f.askSkip ? '<div class="box em" role="alert">The count of ' + peopleLine(pData()) + ' will be removed.</div><div style="display:flex;gap:8px"><button class="btn" data-a="noCountNo" style="flex:1 1 0">Keep the count</button><button class="btn red" data-a="noCount" style="flex:2 1 0">Yes, not counted</button></div>'
+      : '<button class="btn red" data-a="noCount">I didn\'t count the people</button>'));
 };
 
 /* ---------- daily: the food of the whole day ---------- */
+/* is there still a meal to count today (not finished, not marked "not counted")? */
+function peopleOpen() { var db = view(); return countMeals().some(function (m) { var p = eatGet(db, 'people', S.sess.centre, S.date, m); return !(p && (p.data.done || p.data.skip)); }); }
 function stepBtn(n, title, sub, to, cls) {
   return '<button class="step" data-a="go" data-to="' + to + '"><span class="dot ' + cls + '">' + (cls === 'ok' ? ic('check') : n) + '</span><span style="flex:1 1 auto;display:flex;flex-direction:column"><span class="b">' + title + '</span><span class="m s">' + sub + '</span></span>' + ic('next') + '</button>';
 }
@@ -566,23 +574,26 @@ SCREENS.today = function () {
   var db = view(), c = S.sess.centre, d = S.date, dm = eatDayMenu(db, c, d), left = eatLeft(db, c);
   var b = eatGet(db, 'dbefore', c, d, ''), a = eatGet(db, 'dafter', c, d, ''), sk = eatGet(db, 'dskip', c, d, '');
   var out = dayBar() + '<span class="m b">' + esc(centreName(c)) + '</span>';
-  /* the work of the day starts here: 1 and 2 first, then the count of the people */
-  var ready = (sk && sk.data.on) || (dm.saved && b), going = countMeals().some(function (m) { return eatGet(db, 'people', c, d, m); });
-  var startBtn = '<button class="btn big' + (ready ? ' pri' : '') + '" data-a="go" data-to="people" style="min-height:64px;font-size:20px">' + ic('people') + (going ? 'Go on counting the people' : 'Start counting the people') + '</button>' +
-    (ready ? '' : '<span class="m s" style="text-align:center">First answer 1 and 2, then start counting.</span>');
-  if (sk && sk.data.on) out += '<div class="box em">Food not counted on ' + dayName(d) + '. People are counted.</div><button class="btn" data-a="skip" data-on="0">Undo</button>' + startBtn;
+  /* the work of the day in steps: 1 menu, 2 quantities, 3 count of the people, 4 leftovers (where they are counted) */
+  var ready = (sk && sk.data.on) || (dm.saved && b), pes = countMeals().map(function (m) { return eatGet(db, 'people', c, d, m); });
+  var allDone = pes.every(function (p) { return p && p.data.done; }), going = pes.some(function (p) { return p && !p.data.skip; }), anySkip = pes.some(function (p) { return p && p.data.skip; });
+  var pl = 0; pes.forEach(function (p) { if (p && !p.data.skip) pl += eatPlates(p); });
+  var pStep = stepBtn('3', 'Count the people', allDone ? 'Finished: ' + plural(pl, 'plate', 'plates') : (going ? 'Counting: ' + plural(pl, 'plate', 'plates') : (anySkip ? 'People not counted' : 'One tap for each plate')), 'people', allDone ? 'ok' : (going || ready ? 'em' : 'off'));
+  if (sk && sk.data.on) out += '<div class="box em">Food not counted on ' + dayName(d) + '. People are counted.</div><button class="btn" data-a="skip" data-on="0">Undo</button>' + pStep;
   else out += '<div style="display:flex;flex-direction:column;gap:8px">' +
     stepBtn('1', 'What do we eat today?', esc(dayMenuText(db, dm)) + (dm.saved ? '' : ' (plan)') + (dm.cook ? ' · Cook: ' + esc(dm.cook) : ''), 'menu', dm.saved ? 'ok' : 'em') +
     stepBtn('2', 'Quantities for today', b ? esc(qtyLine(db, b.data.q, b.data.u)) : 'Food taken out of the store and the cold room for the meals of today', 'before', b ? 'ok' : (dm.saved ? 'em' : 'off')) +
-    startBtn +
-    (left ? stepBtn('3', 'Leftovers', a ? 'Saved' : 'After the count: what is left at the end of the day', 'after', a ? 'ok' : (b ? 'em' : 'off')) : '') +
-    '</div><button class="btn" data-a="skip" data-on="1">I didn\'t count the food</button>';
+    pStep +
+    (left ? stepBtn('4', 'Leftovers', a ? 'Saved' : 'After the count: what is left at the end of the day', 'after', a ? 'ok' : (b ? 'em' : 'off')) : '') +
+    '</div>';
   /* the day: plates and the amount a plate */
   var u = eatDayUse(db, c, d), rows = '';
   if (u.closed && u.base) db.items.forEach(function (it) { if (u.used[it.id] == null) return; rows += '<div class="row"><span class="b">' + esc(it.name) + '</span><span class="num">' + perTxt(it, eatPerPlate(u, it.id)) + '</span></div>'; });
   out += '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">' + dayName(d) + '</span>' +
     '<div class="row"><span>Plates</span><span class="b num">' + (u.plates == null ? '<span class="pill warn">People: to do</span>' : u.plates + (u.peopleMissing ? ' <span class="m s">(' + plural(u.peopleMissing, 'meal', 'meals') + ' not counted)</span>' : '')) + '</span></div>' + rows +
     (!rows && !u.skipped ? '<span class="m s" style="padding-top:6px">' + (u.hasBefore ? (u.closed ? 'Count the people to see the amount a plate.' : 'After the leftovers: the amount a plate.') : 'After the quantities for today: the amount a plate.') + '</span>' : '') + '</div>';
+  /* at the bottom of the page, in red */
+  if (!(sk && sk.data.on)) out += '<button class="btn red" data-a="skip" data-on="1">I didn\'t count the food</button>';
   return out;
 };
 function notesOfWeek(db, c, d) { var mon = eatMonday(d); return eatNotes(db, mon, eatAddDays(mon, 6), c); }
@@ -644,7 +655,7 @@ SCREENS.before = function () {
   return backLink() + '<h1>Quantities for today</h1>' + dayTitle() + '<div class="box info">Write the food taken out of the store and the cold room for the meals of today, in kg, bags or trays. A half or a quarter: tap ½ or ¼, or write 0.5 or 0.25.</div>' +
     '<div class="card" style="gap:12px">' + (f.rows.length ? foodRowsHtml(f, false) : '<span class="m">No food on the menu.</span>') + '</div>' +
     (more.length ? '<div class="card"><span class="lab">Add another food</span><div class="chips">' + more.map(function (it) { return '<button class="btn" data-a="addRow" data-id="' + it.id + '">+ ' + esc(it.name) + '</button>'; }).join('') + '</div></div>' : '') +
-    '<button class="btn pri big" data-a="saveBefore">Save</button>';
+    '<button class="btn pri big" data-a="saveBefore">' + (peopleOpen() ? 'Save and count the people' : 'Save') + '</button>';
 };
 SCREENS.after = function () {
   var db = view(), b = eatGet(db, 'dbefore', S.sess.centre, S.date, '');
@@ -725,9 +736,8 @@ function daysSeg(mon, cur) {
 function countScreen() {
   var db = view(), f = S.f, start = f.kind === 'startweek', st = eatStock(db, S.sess.centre, f.date, start);
   var rows = db.items.filter(function (it) { return it.stock; }).map(function (it) {
-    var s = st[it.id], pill = endPill(it, s);
-    return qRow(it.id, it.name, it.unit, f.q[it.id], !!f.nc[it.id], stepOf(it.unit)) +
-      '<div class="m s num">' + (s.startDate ? 'Counted ' + dayName(s.startDate) + ' ' : 'Start ') + fmt(s.start) + ' + in ' + fmt(s.inn) + ' − used ' + fmt(s.used) + (s.usedOk ? '' : ' (part not counted)') + ' = expected ' + fmt(s.expected) + '</div><div id="d_' + it.id + '">' + pill + '</div>';
+    /* the person only counts: what should be there, and the difference, are for the overview (comment of 20/11) */
+    return qRow(it.id, it.name, it.unit, f.q[it.id], !!f.nc[it.id], stepOf(it.unit));
   }).join('');
   return weekLink() + '<h1>' + (start ? 'Start of the week' : 'End of the week') + '</h1><div class="sec">' + (start ? 'What is in the store and in the cold room at the start of the week, before any food is taken out' : 'What is left in the store and in the cold room at the end of the week, after the last meal') + ' · ' + esc(centreName(S.sess.centre)) + '</div>' +
     '<div class="card"><span class="lab">Day of the count</span>' + daysSeg(eatMonday(f.date), f.date) + '<span class="m s">' + dayName(f.date) + (start ? ', morning' : ', evening') + '</span></div>' +
@@ -873,7 +883,7 @@ function weekStats(db, c) {
   cen.meals.forEach(function (m) { out.meals[m] = { plates: 0, days: 0, fixed: eatFixed(db, c, m) }; });
   for (var i = 0; i < 7; i++) {
     var d = eatAddDays(S.week, i); if (d > t) break;
-    cen.meals.forEach(function (m) { var x = out.meals[m], p = x.fixed == null ? eatGet(db, 'people', c, d, m) : null; if (x.fixed != null) { x.plates += x.fixed; x.days++; } else if (p) { x.plates += eatPlates(p); x.days++; } });
+    cen.meals.forEach(function (m) { var x = out.meals[m], p = x.fixed == null ? eatGet(db, 'people', c, d, m) : null; if (x.fixed != null) { x.plates += x.fixed; x.days++; } else if (p && p.data.skip) x.skip = (x.skip || 0) + 1; else if (p) { x.plates += eatPlates(p); x.days++; } });
     var us = eatUsesOfDay(db, c, d); out.foodDays++;
     if (us.length && us.every(function (u) { return u.skipped; })) { out.skipped++; continue; }
     if (us.some(function (u) { return u.closed; })) out.foodDone++;
@@ -894,7 +904,7 @@ SCREENS.overview = function () {
   }).join('');
   var plates = eatCanteens(db).map(function (c) {
     var s = stats[c.id];
-    return '<div class="card" style="gap:0"><div class="b" style="font-size:18px;padding-bottom:4px">' + esc(c.name) + '</div>' + c.meals.map(function (m) { var x = s.meals[m]; return '<div class="row"><span>' + m + '</span><span class="num">' + (x.fixed != null ? '<span class="b">' + x.fixed + '</span> a day · fixed, not counted' : (x.days ? '<span class="b">' + Math.round(x.plates / x.days) + '</span> a day · ' + x.plates + ' in ' + plural(x.days, 'day', 'days') : '<span class="m">No count</span>')) + '</span></div>'; }).join('') + '</div>';
+    return '<div class="card" style="gap:0"><div class="b" style="font-size:18px;padding-bottom:4px">' + esc(c.name) + '</div>' + c.meals.map(function (m) { var x = s.meals[m]; return '<div class="row"><span>' + m + '</span><span class="num">' + (x.fixed != null ? '<span class="b">' + x.fixed + '</span> a day · fixed, not counted' : (x.days ? '<span class="b">' + Math.round(x.plates / x.days) + '</span> a day · ' + x.plates + ' in ' + plural(x.days, 'day', 'days') : '<span class="m">No count</span>')) + (x.skip ? ' <span class="m s">· not counted on ' + plural(x.skip, 'day', 'days') + '</span>' : '') + '</span></div>'; }).join('') + '</div>';
   }).join('');
   return '<h1>Overview</h1>' + weekBar() +
     '<div class="sec">Plates</div>' + plates +
@@ -1019,7 +1029,7 @@ function enter(scr) {
     if (typeof dr === 'number') dr = { n: dr };
     var keepGrp = S.f && S.f.grp && centreGroups().indexOf(S.f.grp) >= 0 ? S.f.grp : '';
     var src = dr || (e ? e.data : { n: 0 });
-    S.f = { n: src.n || 0, g: JSON.parse(JSON.stringify(src.g || {})), grp: keepGrp, hist: [], done: !!src.done };
+    S.f = { n: src.n || 0, g: JSON.parse(JSON.stringify(src.g || {})), grp: keepGrp, hist: [], done: !!src.done, skip: !!src.skip };
     if (dr && !samePeople(e, pData())) { S.pPend = { d: d, m: m, data: pData(), k: draftKey() }; clearTimeout(S.pTimer); S.pTimer = setTimeout(peopleFlush, 1500); }
   }
   if (scr === 'menu') {
@@ -1169,7 +1179,8 @@ function fixMeal() { if (countMeals().indexOf(S.meal) < 0) S.meal = defaultMeal(
 A.meal = function (el) { peopleFlush(); S.meal = el.getAttribute('data-m'); enter(S.scr); S.keepScroll = true; render(); };
 /* people: every change is kept on the phone at once and saved 1.5 seconds after the last tap (or on leaving the screen) */
 function peopleChanged(inc) {
-  S.f.done = false; /* a change after Finish opens the count again */
+  var wasSkip = S.f.skip || S.f.askSkip;
+  S.f.done = false; S.f.skip = false; S.f.askSkip = false; /* a change after Finish, or after "not counted", opens the count again */
   if (inc) S.f.hist.push({ g: S.f.grp || '', k: inc });
   var d = pData(), dr = KV.get('draft', {}); dr[draftKey()] = d; KV.set('draft', dr);
   S.pPend = { d: S.date, m: S.meal, data: d, k: draftKey() };
@@ -1177,8 +1188,9 @@ function peopleChanged(inc) {
   var c = document.getElementById('cnt'), st = document.getElementById('pst');
   if (c) c.textContent = curCount(); if (st) st.innerHTML = peopleStatus();
   var sb = document.querySelector('[data-a="grp"][aria-pressed="true"] .num'); if (sb) sb.textContent = curCount();
-  var tb = document.querySelector('.tap'); if (tb) { tb.classList.remove('s-none', 's-done'); tb.classList.add('s-count'); }
+  var tb = document.querySelector('.tap'); if (tb) { tb.classList.remove('s-none', 's-done', 's-skip'); tb.classList.add('s-count'); }
   var md = document.querySelector('[data-a="meal"][aria-pressed="true"] .sd'); if (md) md.className = 'sd s-count';
+  if (wasSkip) { S.keepScroll = true; render(); } /* the boxes of "not counted" go away */
 }
 function peopleFlush() {
   clearTimeout(S.pTimer); S.pTimer = null;
@@ -1192,6 +1204,12 @@ function ringTap() { var b = document.querySelector('.tap'); if (!b) return; b.c
 A.tap = function () { vibrate(); ringTap(); setCount(curCount() + 1); peopleChanged(1); };
 A.grp = function (el) { S.f.grp = el.getAttribute('data-g'); S.keepScroll = true; render(); };
 A.add = function (el) { var k = Number(el.getAttribute('data-n')); vibrate(); ringTap(); setCount(curCount() + k); peopleChanged(k); };
+A.noCount = function () {
+  if (eatPlates({ data: pData() }) > 0 && !S.f.askSkip) { S.f.askSkip = true; S.keepScroll = true; return render(); }
+  S.f.skip = true; S.f.done = false; S.f.askSkip = false; S.f.n = 0; for (var k in S.f.g) S.f.g[k] = 0; S.f.hist = [];
+  S.pPend = { d: S.date, m: S.meal, data: pData(), k: draftKey() }; peopleFlush(); render();
+};
+A.noCountNo = function () { S.f.askSkip = false; S.keepScroll = true; render(); };
 A.finish = function () {
   S.f.done = true; S.pPend = { d: S.date, m: S.meal, data: pData(), k: draftKey() }; peopleFlush();
   /* where the leftovers are counted, they come next, once every meal to count is finished (Mauro, 20/11) */
@@ -1265,7 +1283,7 @@ A.saveBefore = function () {
   var d = qData(); S.f.rows.forEach(function (id) { if (!(id in d.q)) d.q[id] = null; });
   if (S.f.rows.indexOf('chk') >= 0 && !('pcs' in d.q)) d.q.pcs = null;
   d.u = S.f.u || {};
-  saveEntry('dbefore', '', d); S.notice = ''; go('today');
+  var toPeople = peopleOpen(); saveEntry('dbefore', '', d); S.notice = ''; go(toPeople ? 'people' : 'today');
 };
 A.saveAfter = function () {
   var d = qData(); S.f.rows.forEach(function (id) { if (!(id in d.q) || d.q[id] == null) d.q[id] = S.f.nc[id] ? null : (eatNum(S.f.q[id]) || 0); });
@@ -1492,7 +1510,7 @@ function exportXlsx() {
   E.forEach(function (e) { if (e.type !== 'people' || fxDay[e.centre + e.date]) return; fxDay[e.centre + e.date] = 1; var cc = eatCentre(db, e.centre); (cc ? cc.meals : []).forEach(function (m) { var fx = eatFixed(db, e.centre, m); if (fx != null) people.rows.push([e.date, WD[eatWeekday(e.date)], cc.name, m, fx, '', 'Fixed number, not counted', '', '']); }); });
   E.forEach(function (e) {
     var c = centreName(e.centre);
-    if (e.type === 'people' && eatFixed(db, e.centre, e.meal) == null) people.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, eatPlates(e), e.data.g ? e.data.n + ' ' + c + Object.keys(e.data.g).map(function (k) { return ', ' + e.data.g[k] + ' ' + k; }).join('') : '', e.data.done ? 'Yes' : 'Counting', e.byName, localTime(e.saved)]);
+    if (e.type === 'people' && eatFixed(db, e.centre, e.meal) == null) people.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, e.data.skip ? '' : eatPlates(e), e.data.g ? e.data.n + ' ' + c + Object.keys(e.data.g).map(function (k) { return ', ' + e.data.g[k] + ' ' + k; }).join('') : '', e.data.skip ? 'People not counted' : (e.data.done ? 'Yes' : 'Counting'), e.byName, localTime(e.saved)]);
     if ((e.type === 'dbefore' || e.type === 'dskip') && !seen['d' + e.centre + e.date]) {
       seen['d' + e.centre + e.date] = 1;
       var du = eatDayUse(db, e.centre, e.date), db0 = eatGet(db, 'dbefore', e.centre, e.date, ''), da = eatLeft(db, e.centre) ? eatGet(db, 'dafter', e.centre, e.date, '') : null, dmn = eatDayMenu(db, e.centre, e.date), dmt = dayMenuText(db, dmn);
