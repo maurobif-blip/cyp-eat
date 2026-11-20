@@ -38,6 +38,8 @@ main{flex:1 1 auto;padding:16px calc(16px + env(safe-area-inset-right)) calc(96p
 .btn.big{min-height:56px;font-size:18px}
 .btn.sq{width:48px;padding:0;font-size:24px;flex-shrink:0}
 .btn.link{border:0;background:none;color:var(--blue);min-height:44px;padding:0 4px;justify-content:flex-start}
+/* the arrow back to the page before stays under the top bar when the page is scrolled */
+.btn.link.bk{position:sticky;top:calc(env(safe-area-inset-top) + var(--toph,65px));z-index:4;background:var(--ground);margin:0 -16px -6px;padding:6px 20px;min-height:52px;border-radius:0;border-bottom:1px solid var(--line);font-size:17px}
 .btn:disabled{opacity:.45;cursor:default}
 .seg{display:grid;gap:6px}
 .pill{padding:4px 10px;border-radius:999px;font-size:14px;font-weight:700;background:var(--wait-bg);color:var(--wait-ink);white-space:nowrap}
@@ -85,6 +87,9 @@ svg.ic{width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:2;strok
 .grid4 span{padding:7px 0;border-top:1px solid var(--line)} .grid4 .h{font-size:13px;font-weight:700;color:var(--muted);border-top:0}
 .grid4 .r{text-align:right}
 .grid4.g5{grid-template-columns:1.3fr 1fr 1fr 1fr 1fr 1fr;font-size:14px}
+main>.btn.link.bk:first-child{margin-top:-16px}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px} .cal .h{text-align:center;font-size:13px;font-weight:700;color:var(--muted);padding:4px 0}
+.cal .btn{min-height:50px;padding:0;font-size:17px;flex-direction:column;gap:1px} .cal .btn.tod{border:3px solid var(--ok-ink)} .cal .btn:disabled{opacity:.3} .cal .sd{margin:0;width:10px;height:10px;border-width:1px}
 .days{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px} .days .btn{min-height:44px;padding:0;font-size:14px}
 .bar{height:14px;border-radius:4px;background:var(--wait-bg);overflow:hidden} .bar i{display:block;height:14px;background:var(--blue)}
 .keys{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
@@ -142,6 +147,9 @@ var WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], MO = ['Jan', 'Feb', 
 function dayName(s) { return WD[eatWeekday(s)] + ' ' + Number(s.slice(8, 10)) + ' ' + MO[Number(s.slice(5, 7)) - 1]; }
 function fmt(n) { if (n == null) return '–'; return String(Math.round(n * 100) / 100); }
 function localTime(iso) { return iso ? new Date(Date.parse(iso) + 2 * 3600000).toISOString().slice(0, 16).replace('T', ' ') : ''; }
+/* one of a unit: bags -> bag, loaves -> loaf, kg stays */
+function unitOne(u) { return u === 'loaves' ? 'loaf' : (u === 'kg' ? u : String(u).replace(/s$/, '')); }
+function qtyUnit(n, u) { return fmt(n) + ' ' + (Math.abs(n) === 1 ? unitOne(u) : u); }
 function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
 function vibrate() { try { if (navigator.vibrate) navigator.vibrate(35); } catch (e) {} }
 /* SHA-256 of a plain text, as hex (from CYP FIN) */
@@ -178,6 +186,7 @@ var IC = {
   camera: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>',
   sound: '<path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M16 9a4 4 0 0 1 0 6"/><path d="M18.5 6.5a8 8 0 0 1 0 11"/>',
   cal: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18"/><path d="M8 3v4"/><path d="M16 3v4"/>',
+  pen: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13.5 6.5l4 4"/>',
   truck: '<path d="M2 6h11v10H2z"/><path d="M13 9h5l3 4v3h-8"/><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>',
   check: '<path d="M5 12.5 10 17l9-10"/>', back: '<path d="M15 5l-7 7 7 7"/>', next: '<path d="M9 5l7 7-7 7"/>', talk: '<path d="M4 5h16v11H10l-5 4v-4H4z"/>'
 };
@@ -307,12 +316,14 @@ function noticeHtml() {
 function render() {
   var app = document.getElementById('app'), h = '';
   var scr = S.scr;
-  var fn = SCREENS[scr] || SCREENS.signin;
+  var gate = needDay(); if (gate) scr = 'daypick';
+  var fn = gate ? dayPickScreen : (SCREENS[scr] || SCREENS.signin);
   var body = fn();
   h = topBar() + '<main>' + noticeHtml() + body + '</main>';
-  if (S.sess && NAV[scr]) h += navBar(NAV[scr]);
+  if (S.sess && S.sess.mode !== 'delivery' && NAV[S.scr]) h += navBar(NAV[S.scr]);
   var y = window.scrollY, same = S.shown === scr;
   app.innerHTML = h;
+  var tb = app.querySelector('.top'); if (tb) document.documentElement.style.setProperty('--toph', tb.offsetHeight + 'px');
   /* a new screen starts at the top; the same screen stays where the person is */
   if (S.keepScroll || same) window.scrollTo(0, y); else window.scrollTo(0, 0);
   S.keepScroll = false; S.shown = scr; S.waiting = false;
@@ -419,7 +430,7 @@ SCREENS.pin = function () {
     if (k === 'ok') return '<button class="btn pri" data-a="key" data-k="ok" style="font-size:18px"' + (S.pin.length < 4 || S.busy ? ' disabled' : '') + '>OK</button>';
     return '<button class="btn" data-a="key" data-k="' + k + '">' + k + '</button>';
   }).join('');
-  return '<button class="btn link" data-a="go" data-to="signin">' + ic('back') + 'Back</button>' +
+  return '<button class="btn link bk" data-a="go" data-to="signin">' + ic('back') + 'Back</button>' +
     '<h1 style="text-align:center">' + ({ entry: 'Data entry PIN', admin: 'Overview PIN', delivery: 'Deliveries PIN' }[S.pinMode]) + '</h1>' +
     '<div class="dots" aria-live="polite">' + dots + '</div>' +
     (S.msg ? '<div class="box em" role="alert">' + esc(S.msg) + '</div>' : '') +
@@ -433,7 +444,7 @@ SCREENS.name = function () {
     installCard() + '<button class="btn link" data-a="signout">Sign out</button>';
 };
 SCREENS.centre = function () {
-  return '<button class="btn link" data-a="go" data-to="name">' + ic('back') + 'Back</button><h1>Which centre?</h1><span class="m b">' + esc(S.sess.name) + '</span>' +
+  return '<button class="btn link bk" data-a="go" data-to="name">' + ic('back') + 'Back</button><h1>Which centre?</h1><span class="m b">' + esc(S.sess.name) + '</span>' +
     eatCanteens(view()).map(function (c) { return '<button class="btn big" data-a="pickCentre" data-id="' + c.id + '" style="justify-content:space-between">' + esc(c.name) + ic('next') + '</button>'; }).join('');
 };
 
@@ -441,10 +452,33 @@ SCREENS.centre = function () {
 function dayBar() {
   var t = todayStr(), isT = S.date === t;
   return '<div class="daybar ' + (isT ? 'today' : 'past') + '"><button class="btn sq" style="border:0" data-a="day" data-d="-1" aria-label="Day before">' + ic('back') + '</button>' +
-    '<label style="position:relative;display:flex;flex-direction:column;align-items:center;cursor:pointer;padding:2px 8px"><span class="b" style="font-size:20px;display:flex;align-items:center;gap:6px">' + ic('cal') + dayName(S.date) + '</span><span class="s b" style="color:' + (isT ? 'var(--ok-ink)' : 'var(--em-ink)') + '">' + (isT ? 'Today' : (S.date === eatAddDays(t, -1) ? 'Yesterday' : 'Not today')) + ' · <span style="text-decoration:underline">choose the day</span></span>' +
-      '<input type="date" data-cal aria-label="Choose the day in the calendar" max="' + t + '" value="' + S.date + '" data-a-change="dayPick" style="position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer"></label>' +
+    '<button data-a="dayAsk" aria-label="' + dayName(S.date) + ': open the calendar to change the day" style="background:none;border:0;font:inherit;color:inherit;display:flex;flex-direction:column;align-items:center;cursor:pointer;padding:2px 8px;min-height:48px"><span class="b" style="font-size:20px;display:flex;align-items:center;gap:6px">' + ic('cal') + dayName(S.date) + '</span><span class="s b" style="color:' + (isT ? 'var(--ok-ink)' : 'var(--em-ink)') + '">' + (isT ? 'Today' : (S.date === eatAddDays(t, -1) ? 'Yesterday' : 'Not today')) + ' · <span style="text-decoration:underline">choose the day</span></span></button>' +
     (isT ? '<span style="width:48px"></span>' : '<button class="btn sq" style="border:0" data-a="day" data-d="1" aria-label="Day after">' + ic('next') + '</button>') + '</div>' +
     (isT ? '' : '<button class="btn link" data-a="day" data-d="0">Back to today</button>');
+}
+/* before counting, the person sees the calendar and confirms the day (comments of 20/11: people think more and make fewer mistakes).
+   Asked at each sign in, when the date changes, after 30 minutes away, and from the day bar */
+var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+var DAYSCR = { people: 1, today: 1, menu: 1, before: 1, after: 1 };
+function askDay(keep) { S.dayOk = false; S.pick = keep && S.date ? S.date : todayStr(); S.calM = S.pick.slice(0, 8) + '01'; }
+function needDay() { return !!(S.sess && S.sess.mode === 'entry' && S.sess.centre && !S.dayOk && DAYSCR[S.scr]); }
+function dayPickScreen() {
+  var db = view(), t = todayStr(), c = S.sess.centre, pick = S.pick || t, m0 = S.calM || pick.slice(0, 8) + '01', meals = centreMeals();
+  var y = Number(m0.slice(0, 4)), mo = Number(m0.slice(5, 7)), n = new Date(Date.UTC(y, mo, 0)).getUTCDate(), off = (eatWeekday(m0) + 6) % 7, cells = '';
+  for (var i = 0; i < off; i++) cells += '<span></span>';
+  for (var d = 1; d <= n; d++) {
+    var ds = m0.slice(0, 8) + (d < 10 ? '0' : '') + d, on = ds === pick, fut = ds > t, st = '';
+    if (!fut) { var some = 0, done = 0; meals.forEach(function (m) { var p = eatGet(db, 'people', c, ds, m); if (p) { some++; if (p.data.done) done++; } }); st = some ? (done === meals.length ? 'done' : 'count') : ''; }
+    cells += '<button class="btn' + (on ? ' on' : '') + (ds === t ? ' tod' : '') + '" data-a="calDay" data-d="' + ds + '" aria-pressed="' + on + '" aria-label="' + dayName(ds) + (ds === t ? ', today' : '') + (st ? ', ' + (st === 'done' ? 'all meals finished' : 'counting') : '') + '"' + (fut ? ' disabled' : '') + '>' + d + (st ? '<span class="sd s-' + st + '"></span>' : '') + '</button>';
+  }
+  var cur = m0 === t.slice(0, 8) + '01', isT = pick === t;
+  return '<h1>Which day are you counting?</h1><span class="m">' + esc(centreName(c)) + '. Look at the day, then confirm.</span>' +
+    '<div class="card"><div style="display:flex;align-items:center;justify-content:space-between"><button class="btn sq" data-a="calMonth" data-d="-1" aria-label="Month before">' + ic('back') + '</button><span class="b" style="font-size:20px">' + MONTHS[mo - 1] + ' ' + y + '</span>' + (cur ? '<span style="width:48px"></span>' : '<button class="btn sq" data-a="calMonth" data-d="1" aria-label="Month after">' + ic('next') + '</button>') + '</div>' +
+    '<div class="cal">' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(function (h) { return '<span class="h">' + h + '</span>'; }).join('') + cells + '</div>' +
+    '<span class="m s" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap"><span class="sd s-count"></span>counting <span class="sd s-done" style="margin-left:10px"></span>all meals finished</span></div>' +
+    '<div class="box ' + (isT ? 'ok' : 'em') + '" role="status" style="font-size:20px;text-align:center"><span class="b">' + dayName(pick) + '</span> · ' + (isT ? 'today' : (pick === eatAddDays(t, -1) ? 'yesterday, not today' : 'not today')) + '</div>' +
+    '<button class="btn big" data-a="dayConfirm" style="min-height:72px;font-size:20px;background:var(--ok-ink);border-color:var(--ok-ink);color:#fff">' + ic('check') + 'Yes, count ' + dayName(pick) + '</button>' +
+    (isT ? '' : '<button class="btn" data-a="calToday">Back to today</button>');
 }
 function mealSeg() {
   var ms = centreMeals();
@@ -547,8 +581,8 @@ function unitTog(it, u) {
   return '<div class="seg" role="group" aria-label="Unit for ' + esc(it.name) + '" style="grid-template-columns:repeat(2,minmax(0,1fr))">' +
     ['unit', 'use'].map(function (x) { return '<button class="btn s' + (x === cur ? ' on' : '') + '" data-a="unit" data-k="' + it.id + '" data-v="' + x + '" aria-pressed="' + (x === cur) + '">In ' + esc(x === 'unit' ? it.unit : it.use) + '</button>'; }).join('') + '</div>';
 }
-function backLink() { return '<button class="btn link" data-a="go" data-to="today">' + ic('back') + 'Daily</button>'; }
-function weekLink() { return '<button class="btn link" data-a="go" data-to="week">' + ic('back') + 'Weekly</button>'; }
+function backLink() { return '<button class="btn link bk" data-a="go" data-to="today">' + ic('back') + 'Daily</button>'; }
+function weekLink() { return '<button class="btn link bk" data-a="go" data-to="week">' + ic('back') + 'Weekly</button>'; }
 function dayTitle() { return '<div class="sec">' + dayName(S.date) + ' · ' + esc(centreName(S.sess.centre)) + '</div>'; }
 SCREENS.menu = function () {
   var db = view(), f = S.f, relish = db.items.filter(function (it) { return it.relish; }), plan = eatItem(db, EAT_PLAN[eatWeekday(S.date)]);
@@ -632,13 +666,13 @@ SCREENS.deliveries = function () {
   return out;
 };
 SCREENS.note = function () {
-  var db = view(), f = S.f, t = todayStr();
-  return '<button class="btn link" data-a="go" data-to="deliveries">' + ic('back') + 'Delivery notes</button>' +
+  var db = view(), f = S.f, t = todayStr(), dl = S.sess.mode === 'delivery';
+  return '<button class="btn link bk" data-a="go" data-to="' + (dl ? 'deliver' : 'deliveries') + '">' + ic('back') + 'Delivery notes</button>' +
     '<h1>' + (f.orig ? 'Delivery note ' + esc(f.orig) : 'New delivery note') + '</h1>' +
     (f.photo ? '<a class="btn" target="_blank" rel="noopener" href="https://drive.google.com/file/d/' + esc(f.photo) + '/view">' + ic('camera') + 'See the photo of the note</a>' : '') +
     '<div class="card"><label for="nno" class="lab">Note number (the red number)</label><input id="nno" class="in num" type="text" inputmode="numeric" autocomplete="off" data-f="no" value="' + esc(f.no) + '"' + (f.orig ? '' : ' data-focus') + '>' +
     '<label for="ndt" class="lab">Date on the note</label><input id="ndt" class="in" type="date" max="' + t + '" data-f="date" value="' + esc(f.date) + '"></div>' +
-    '<div class="card"><span class="lab">Centre</span><div class="seg" style="grid-template-columns:repeat(2,minmax(0,1fr))">' + eatPlaces(db).map(function (c) { var on = c.id === f.centre; return '<button class="btn' + (on ? ' on' : '') + '" data-a="noteCentre" data-id="' + c.id + '" aria-pressed="' + on + '">' + esc(c.name) + '</button>'; }).join('') + '</div></div>' +
+    '<div class="card"><span class="lab">' + (dl ? 'Who is the note for?' : 'Centre') + '</span><div class="seg" style="grid-template-columns:repeat(2,minmax(0,1fr))">' + eatPlaces(db).map(function (c) { var on = c.id === f.centre; return '<button class="btn' + (on ? ' on' : '') + '" data-a="noteCentre" data-id="' + c.id + '" aria-pressed="' + on + '">' + esc(c.name) + '</button>'; }).join('') + '</div></div>' +
     '<div class="card" style="gap:12px"><span class="lab">What is on the note</span>' + db.items.filter(function (it) { return it.stock; }).map(function (it) { return qRow(it.id, it.name, it.unit, f.q[it.id], undefined, stepOf(it.unit)); }).join('') + '</div>' +
     '<div class="card"><span class="lab">A part for another place</span><span class="m s">When the note says, for example, "02 chickens for Chinika House". The quantities above stay the whole note.</span>' +
     (f.parts || []).map(function (pt, i) { return '<div class="row"><span>' + esc(partsText(db, [pt])) + '</span><button class="nc" data-a="partOff" data-i="' + i + '">Remove</button></div>'; }).join('') +
@@ -646,7 +680,7 @@ SCREENS.note = function () {
     '<div style="display:flex;gap:8px"><select id="pit" class="in" aria-label="Food of the part">' + db.items.filter(function (it) { return it.stock; }).map(function (it) { return '<option value="' + it.id + '">' + esc(it.name) + ' (' + esc(it.unit) + ')</option>'; }).join('') + '</select>' +
     '<input id="pqt" class="in num" type="text" inputmode="decimal" aria-label="Quantity of the part" placeholder="2" style="max-width:96px"></div>' +
     '<button class="btn" data-a="partAdd">Add the part</button></div>' +
-    '<div class="card"><span class="lab">How long should it last?</span><div class="seg" style="grid-template-columns:repeat(4,minmax(0,1fr))">' + [1, 2, 3, 4, 5, 6, 7, 14].map(function (v) { var on = f.days === v; return '<button class="btn' + (on ? ' on' : '') + '" data-a="days" data-v="' + v + '" aria-pressed="' + on + '">' + (v === 14 ? '2 weeks' : plural(v, 'day', 'days')) + '</button>'; }).join('') + '</div>' + (f.days ? '<span class="m s">From ' + dayName(f.date) + ' to ' + dayName(eatAddDays(f.date, f.days - 1)) + '</span>' : '<span class="m s">Days of food, from the date on the note.</span>') + '</div>' +
+    (dl ? '' : '<div class="card"><span class="lab">How long should it last?</span><div class="seg" style="grid-template-columns:repeat(4,minmax(0,1fr))">' + [1, 2, 3, 4, 5, 6, 7, 14].map(function (v) { var on = f.days === v; return '<button class="btn' + (on ? ' on' : '') + '" data-a="days" data-v="' + v + '" aria-pressed="' + on + '">' + (v === 14 ? '2 weeks' : plural(v, 'day', 'days')) + '</button>'; }).join('') + '</div>' + (f.days ? '<span class="m s">From ' + dayName(f.date) + ' to ' + dayName(eatAddDays(f.date, f.days - 1)) + '</span>' : '<span class="m s">Days of food, from the date on the note.</span>') + '</div>') +
     '<div class="card"><label for="nrm" class="lab">Remark on the note</label><input id="nrm" class="in" type="text" data-f="remark" value="' + esc(f.remark) + '" placeholder="For two weeks, for Chinika House…">' +
     '<label for="nrc" class="lab">Received by</label><input id="nrc" class="in" type="text" data-f="recv" value="' + esc(f.recv) + '"></div>' +
     '<button class="btn pri big" data-a="noteSave">Save the note</button>' +
@@ -742,14 +776,15 @@ function readSentence(db, r) {
 }
 /* the camera, and a photo already taken (from the gallery). The two file inputs (#cam, #gal) live outside the page, see keepInputs():
    the page is redrawn at every sync, and a photo given to an input that was redrawn while the camera was open is lost. */
-function camButton(label, pri) {
+function camButton(label, pri, hand) {
   return '<label class="btn big ' + (pri ? 'pri' : '') + '" style="min-height:120px;font-size:22px;flex-direction:column;gap:8px" for="cam">' + ic('camera') + label + '</label>' +
-    '<label class="btn" style="min-height:64px;font-size:18px" for="gal">' + ic('gallery') + 'Choose a photo from the gallery</label>';
+    '<label class="btn" style="min-height:64px;font-size:18px" for="gal">' + ic('gallery') + 'Choose a photo from the gallery</label>' +
+    '<button class="btn" style="min-height:64px;font-size:18px" data-a="dvHand">' + ic('pen') + (hand || 'Write the note by hand') + '</button>';
 }
 SCREENS.deliver = function () {
   var db = view(), v = S.dv || { step: 'start' }, t = todayStr();
   var mine = eatNotes(db, t, t).filter(function (n) { return n.byName === 'Deliveries'; });
-  var today = mine.length ? '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Saved today</span>' + mine.map(function (n) { return '<div class="row"><span class="b">No. ' + esc(n.data.no) + '</span><span>' + esc(centreName(n.centre)) + '</span></div>'; }).join('') + '</div>' : '';
+  var today = mine.length ? '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Saved today</span>' + mine.map(function (n) { return '<button class="step" style="border:0;border-top:1px solid var(--line);border-radius:0;padding:10px 0" data-a="dvOpen" data-no="' + esc(n.data.no) + '" aria-label="Note ' + esc(n.data.no) + ', ' + esc(centreName(n.centre)) + ': open to correct"><span style="flex:1 1 auto;display:flex;flex-direction:column;text-align:left"><span class="b">No. ' + esc(n.data.no) + ' · ' + esc(centreName(n.centre)) + '</span><span class="m s">' + esc(noteItems(db, eatNoteQ(n, n.centre))) + (n.data.photo ? '' : ' · written by hand') + '</span></span>' + ic('next') + '</button>'; }).join('') + '<span class="m s" style="padding-top:6px">Tap a note to correct it.</span></div>' : '';
   var photo = v.img ? '<img src="' + v.img + '" alt="The photo of the delivery note" style="width:100%;max-height:320px;object-fit:contain;border-radius:12px;background:#fff;border:1px solid var(--line)">' : '';
   if (v.step === 'reading') return '<h1>Reading the note…</h1>' + photo + '<div class="box info" role="status">It takes 10 to 20 seconds. <span class="b num" id="rsec">' + (v.t0 ? Math.round((Date.now() - v.t0) / 1000) : 0) + '</span> s</div>';
   if (v.step === 'check') {
@@ -759,14 +794,14 @@ SCREENS.deliver = function () {
       (other ? '<span class="box em" style="font-size:16px">Note ' + esc(r.no) + ' is already saved (' + esc(centreName(other.centre)) + '). Yes replaces it.</span>' : '') +
       ('speechSynthesis' in window ? '<button class="btn" data-a="say">' + ic('sound') + 'Listen</button>' : '') + '</div>' +
       '<button class="btn big" style="min-height:72px;font-size:22px;background:var(--ok-ink);border-color:var(--ok-ink);color:#fff" data-a="dvYes">' + ic('check') + 'Yes, it is correct</button>' +
-      camButton('No, take the picture again', false);
+      camButton('No, take the picture again', false, 'No, correct it by hand');
   }
   if (v.step === 'saved') return '<div class="box ok" role="status" style="font-size:20px">Saved: delivery note' + (v.nos.length > 1 ? 's ' + esc(v.nos.join(' and ')) : ' ' + esc(v.nos[0])) + '. Thank you.</div>' +
     (v.unclear ? '<div class="box em" style="font-size:18px">' + (v.unclear === 1 ? 'One more note in the picture could not be read' : v.unclear + ' more notes could not be read') + ': take a picture of it alone.</div>' : '') +
     camButton('Take a picture of the next delivery note', true) + today;
   if (v.step === 'error') return '<h1>' + esc(v.title) + '</h1>' + photo + '<div class="box em" role="alert" style="font-size:18px">' + esc(v.msg) + '</div>' +
     (v.retry ? '<button class="btn pri big" data-a="dvRetry">Try again</button>' : '') + camButton('Take the picture again', !v.retry) + today;
-  return '<h1>Delivery notes</h1><span style="font-size:18px">Take a picture of each delivery note, flat, with the whole note in the picture.</span>' + camButton('Take a picture of the delivery note', true) + today;
+  return '<h1>Delivery notes</h1><span style="font-size:18px">Take a picture of each delivery note, flat, with the whole note in the picture. Or write the note by hand.</span>' + camButton('Take a picture of the delivery note', true) + today;
 };
 function dvError(title, msg, retry) { S.dv = { step: 'error', title: title, msg: msg, retry: !!retry, img: S.dv && S.dv.img, data: S.dv && S.dv.data }; render(); }
 function dvRead() {
@@ -839,7 +874,7 @@ SCREENS.overview = function () {
     '<div class="sec">Food a plate</div><div class="chips">' + db.items.map(function (x) { return '<button class="btn' + (x.id === it.id ? ' on' : '') + '" data-a="item" data-id="' + x.id + '">' + esc(x.name) + '</button>'; }).join('') + '</div>' +
     '<div class="card" style="gap:12px"><div style="display:flex;justify-content:space-between"><span class="b" style="font-size:18px">' + esc(it.name) + '</span><span class="m s b">' + unitTxt + '</span></div>' + bars + '</div>' +
     '<div class="sec">Delivery notes</div>' + notesCard(db) +
-    '<div class="sec">In the store now</div>' + eatCanteens(db).map(function (c) { return stockCard(db, c.id); }).join('') +
+    '<div class="sec">In the store: expected and counted</div><span class="m s">Start of the week + delivered − cooked (from the daily counts) = expected. Next to it, the count at the end of the week. A difference is food that is not explained.</span>' + eatCanteens(db).map(function (c) { return checkCard(db, c.id); }).join('') +
     '<button class="btn" data-a="export">Export in Excel</button><div class="ver">CYP EAT ' + EAT_VERSION + (S.lastSync ? ' · updated ' + new Date(S.lastSync).toTimeString().slice(0, 5) : '') + '</div>';
 };
 function notesCard(db) {
@@ -850,10 +885,28 @@ function notesCard(db) {
   }).join('');
   return '<div class="card" style="gap:0">' + rows + (gaps.length ? '<div class="box em" style="margin-top:8px">Numbers not saved: ' + gapsText(gaps) + '</div>' : '') + '<button class="btn" data-a="go" data-to="deliveries" style="margin-top:8px">Open the delivery notes</button></div>';
 }
-function stockCard(db, c) {
-  var st = eatStock(db, c, todayStr()), rows = '';
-  db.items.forEach(function (it) { var s = st[it.id]; if (!s || (!s.start && !s.inn && !s.used)) return; rows += '<span>' + esc(it.name) + '<br><span class="m s">' + esc(it.unit) + '</span></span><span class="r num">' + fmt(s.start) + '</span><span class="r num">+' + fmt(s.inn) + '</span><span class="r num">−' + fmt(s.used) + '</span><span class="r num b">' + fmt(s.expected) + '</span>'; });
-  return '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">' + esc(centreName(c)) + '</span>' + (rows ? '<div class="grid4"><span class="h">Item</span><span class="h r">Counted</span><span class="h r">In</span><span class="h r">Used</span><span class="h r">Now</span>' + rows + '</div>' : '<span class="m">Nothing yet.</span>') + '</div>';
+/* the store of one centre in the week shown: start + delivered − cooked = expected, next to the count at the end of the week */
+function checkCard(db, c) {
+  var w = eatWeekCheck(db, c, S.week, todayStr()), rows = '', miss = 0;
+  db.items.forEach(function (it) {
+    var x = w.items[it.id]; if (!x || (!x.start && !x.inn && !x.used && !x.counted)) return;
+    var pill = '', why = '';
+    if (x.expected != null && x.expected < 0 && x.counted == null) pill = '<span class="pill warn">More cooked than came in</span>';
+    else if (x.counted === undefined) pill = x.expected == null ? '' : '<span class="pill">Expected now: ' + esc(qtyUnit(x.expected, it.unit)) + '</span>';
+    else if (x.counted === null) pill = '<span class="pill off">Not counted</span>';
+    else if (x.diff == null) pill = '<span class="pill off">Counted: ' + esc(qtyUnit(x.counted, it.unit)) + '</span>';
+    else if (x.diff === 0) pill = '<span class="pill ok">As expected</span>';
+    else if (x.diff < 0) { pill = '<span class="pill bad">' + esc(qtyUnit(-x.diff, it.unit)) + ' missing</span>'; miss++; }
+    else pill = '<span class="pill warn">' + esc(qtyUnit(x.diff, it.unit)) + ' more</span>';
+    if (x.expected == null) why = x.start == null ? 'there is no count before this week' : (it.unit !== it.use && !it.per ? 'set how much is in one ' + unitOne(it.unit) + ' (Settings, Food and units)' : 'a daily count is not complete');
+    rows += '<div class="row" style="flex-direction:column;align-items:stretch;gap:4px"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><span class="b">' + esc(it.name) + ' <span class="m s">' + esc(it.unit) + '</span></span>' + pill + '</div>' +
+      '<span class="s num">Start ' + (x.start == null ? '?' : fmt(x.start)) + ' + delivered ' + fmt(x.inn) + ' − cooked ' + fmt(x.used) + ' = expected <span class="b">' + (x.expected == null ? '?' : fmt(x.expected)) + '</span>' + (x.counted === undefined ? '' : (x.counted === null ? ' · not counted at the end' : ' · counted <span class="b">' + fmt(x.counted) + '</span>')) + '</span>' +
+      (why ? '<span class="m s">Expected not known: ' + why + '.</span>' : '') + '</div>';
+  });
+  var head = '<span class="m s">' + (w.startCounted ? 'Start: counted ' + dayName(w.startDate) : (w.startDate ? 'Start: the stock on Monday morning, from the count of ' + dayName(w.startDate) : 'Start: no count before this week')) + '. ' +
+    (w.endDate ? 'End: counted ' + dayName(w.endDate) : 'End: not counted yet') + '. Daily food counted on ' + w.daysFood + ' of ' + plural(w.days, 'day', 'days') + (w.daysSkipped ? ' (' + w.daysSkipped + ' marked not counted)' : '') + '.</span>';
+  var warn = miss && w.daysFood < w.days ? '<div class="box em" style="margin-top:8px">Food cooked on a day without a daily count is not in "cooked", so it shows as missing. Check those days first.</div>' : '';
+  return '<div class="card" style="gap:0" data-check="' + c + '"><span class="b" style="font-size:18px;padding-bottom:2px">' + esc(centreName(c)) + '</span>' + head + (rows || '<span class="m" style="padding-top:6px">Nothing yet.</span>') + warn + '</div>';
 }
 /* settings: a menu of sections; each section opens on its own (comment of 20/11: too much on one page) */
 var SETSECS = [
@@ -890,11 +943,11 @@ SCREENS.settings = function () {
         '<span class="m s" style="padding-top:6px">Also eat here (counted apart): ' + ((c.groups || []).length ? c.groups.map(function (g) { return '<button class="nc" data-a="grpOff" data-id="' + c.id + '" data-g="' + esc(g) + '" aria-label="Remove ' + esc(g) + '">' + esc(g) + ' ×</button>'; }).join(' ') : 'nobody') + '</span>' +
         '<div style="display:flex;gap:6px;padding-top:4px"><input class="in" type="text" aria-label="A group that eats at ' + esc(c.name) + '" data-f="grp_' + c.id + '" value="' + esc(S.f['grp_' + c.id] || '') + '"><button class="btn" data-a="grpAdd" data-id="' + c.id + '">Add</button></div></div>';
     }).join('') + '</div>'; },
-    food: function () { return '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">How each food is counted in the store</span><span class="m s" style="padding-bottom:6px">In its own unit (kg, chickens, eggs), or in bags, trays, cans, packs or pieces. For those, write how much is in one.</span>' + db.items.map(function (it) {
+    food: function () { return '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">How each food is counted in the store</span><span class="m s" style="padding-bottom:6px">In its own unit (kg, chicken, egg), or by the bag, tray, can, pack or piece. For those, write how much is in one.</span>' + db.items.map(function (it) {
       var un = S.f['un_' + it.id] || it.unit, pack = un !== it.use, per = S.f['pe_' + it.id] != null ? S.f['pe_' + it.id] : (it.unit === un && it.per ? it.per : '');
       return '<div class="row" style="flex-direction:column;align-items:stretch;gap:6px"><span class="b">' + esc(it.name) + '</span>' +
-        '<div style="display:flex;gap:8px;align-items:center"><label for="un_' + it.id + '" class="m s" style="flex-shrink:0">Counted in</label><select id="un_' + it.id + '" class="in" data-a-change="unitSel" data-id="' + it.id + '">' + [it.use].concat(EAT_PACKS.filter(function (u) { return u !== it.use && (u !== 'pieces' || it.use === 'kg'); })).map(function (u) { return '<option value="' + u + '"' + (u === un ? ' selected' : '') + '>' + esc(u) + '</option>'; }).join('') + '</select></div>' +
-        (pack ? '<div style="display:flex;gap:6px;align-items:center"><label for="pe_' + it.id + '">1 ' + esc(un.replace(/s$/, '')) + '&nbsp;=</label><input id="pe_' + it.id + '" class="in num" style="width:96px;text-align:right" type="text" inputmode="decimal" value="' + esc(String(per)) + '" data-f="pe_' + it.id + '"><span class="m b">' + esc(it.use) + '</span></div>' : '') + '</div>';
+        '<div style="display:flex;gap:8px;align-items:center"><label for="un_' + it.id + '" class="m s" style="flex-shrink:0">Counted in</label><select id="un_' + it.id + '" class="in" data-a-change="unitSel" data-id="' + it.id + '">' + [it.use].concat(EAT_PACKS.filter(function (u) { return u !== it.use && (u !== 'pieces' || it.use === 'kg'); })).map(function (u) { return '<option value="' + u + '"' + (u === un ? ' selected' : '') + '>' + esc(unitOne(u)) + '</option>'; }).join('') + '</select></div>' +
+        (pack ? '<div style="display:flex;gap:6px;align-items:center"><label for="pe_' + it.id + '">1 ' + esc(unitOne(un)) + '&nbsp;=</label><input id="pe_' + it.id + '" class="in num" style="width:96px;text-align:right" type="text" inputmode="decimal" value="' + esc(String(per)) + '" data-f="pe_' + it.id + '"><span class="m b">' + esc(it.use) + '</span></div>' : '') + '</div>';
     }).join('') + '<button class="btn pri" data-a="saveUnits" style="margin-top:8px">Save the units</button></div>'; },
     places: function () { return placesCard(db); },
     pins: function () { return '<div class="card"><span class="b" style="font-size:18px">PINs</span><button class="btn" data-a="pinChange" data-w="entry">Change the data entry PIN</button><button class="btn" data-a="pinChange" data-w="admin">Change the overview PIN</button><button class="btn" data-a="pinChange" data-w="delivery">' + (db.settings && db.settings.delivery ? 'Change the deliveries PIN' : 'Set the deliveries PIN') + '</button><span class="m s">Deliveries: the person who brings the food takes a photo of each delivery note.</span></div>' + '<div class="card"><span class="b" style="font-size:18px">Link for the people who count</span><button class="btn" data-a="copyLink">Copy the link</button><span class="m s">Send the link and, in another message, the data entry PIN.</span></div>'; },
@@ -909,7 +962,7 @@ SCREENS.settings = function () {
     install: function () { return installCard(); }
   };
   var title = SETSECS.filter(function (x) { return x[0] === sec; })[0];
-  return '<button class="btn link" data-a="setSec" data-s="">' + ic('back') + 'Settings</button><h1>' + (title ? title[1] : 'Settings') + '</h1>' + (parts[sec] ? parts[sec]() : '');
+  return '<button class="btn link bk" data-a="setSec" data-s="">' + ic('back') + 'Settings</button><h1>' + (title ? title[1] : 'Settings') + '</h1>' + (parts[sec] ? parts[sec]() : '');
 };
 
 /* ---------- comment and PIN windows ---------- */
@@ -957,7 +1010,10 @@ function enter(scr) {
   if (scr === 'note') {
     var nt = S.noteNo ? eatNote(db, S.noteNo) : null;
     S.f = nt ? { orig: nt.data.no, no: nt.data.no, date: nt.date, centre: nt.centre, q: JSON.parse(JSON.stringify(nt.data.q)), nc: {}, remark: nt.data.remark || '', recv: nt.data.recv || '', days: nt.data.days || null, photo: nt.data.photo || '', parts: JSON.parse(JSON.stringify(nt.data.parts || [])) }
-      : { orig: '', no: '', date: todayStr(), centre: c || db.centres[0].id, q: {}, nc: {}, remark: '', recv: '', days: null, parts: [] };
+      : { orig: '', no: '', date: todayStr(), centre: S.sess.mode === 'delivery' ? '' : (c || db.centres[0].id), q: {}, nc: {}, remark: '', recv: '', days: null, parts: [] };
+    /* a note read from a photo and corrected by hand starts with what the picture says */
+    if (!nt && S.notePre) { var pr = S.notePre; S.f.no = pr.no || ''; S.f.date = pr.date || todayStr(); S.f.centre = pr.centre || ''; S.f.q = JSON.parse(JSON.stringify(pr.q || {})); S.f.parts = JSON.parse(JSON.stringify(pr.parts || [])); S.f.remark = pr.remark || ''; S.f.recv = pr.recv || ''; S.f.photo = pr.photo || ''; }
+    S.notePre = null;
   }
   if (scr === 'startweek' || scr === 'endweek') {
     /* the count already saved this week, else Monday (start) or today, Sunday at most (end) */
@@ -974,7 +1030,7 @@ function defaultMeal() {
 }
 function startSession() {
   S.fullNext = true; /* a new sign in reads everything again: the overview also gets the comments */
-  S.date = todayStr(); S.today = S.date; S.week = eatMonday(S.date);
+  S.date = todayStr(); S.today = S.date; S.week = eatMonday(S.date); askDay(false);
   if (S.sess.mode === 'admin') { S.scr = 'overview'; }
   else if (S.sess.mode === 'delivery') { S.dv = { step: 'start' }; S.scr = 'deliver'; }
   else if (!S.sess.nid) S.scr = 'name';
@@ -1000,6 +1056,14 @@ A.photo = function (el) {
 };
 A.dvRetry = function () { if (S.dv && S.dv.data) dvRead(); };
 A.say = function () { try { speechSynthesis.cancel(); var u = new SpeechSynthesisUtterance('The picture says: ' + S.dv.sentence + ' Is this correct?'); u.lang = 'en-GB'; u.rate = 0.9; speechSynthesis.speak(u); } catch (e) {} };
+/* by hand: an empty note, or the note the picture gave, to correct. Tapping a note saved today opens it */
+A.dvHand = function () {
+  var v = S.dv, r = v && v.step === 'check' ? v.reads[v.i] : null;
+  S.dvBack = r ? v : null;
+  S.notePre = r ? { no: r.no, date: r.date, centre: r.centre, q: r.q, parts: r.parts || [], remark: r.remark || '', recv: r.recv || '', photo: v.photo || '' } : (v && v.photo && v.step !== 'saved' ? { photo: v.photo } : null);
+  S.noteNo = ''; go('note');
+};
+A.dvOpen = function (el) { S.dvBack = null; S.notePre = null; S.noteNo = el.getAttribute('data-no'); go('note'); };
 A.dvYes = function () {
   var v = S.dv, r = v.reads[v.i];
   queueNote(r.centre, r.date, { no: r.no, q: r.q, parts: r.parts || [], days: null, remark: r.remark || '', recv: r.recv || '', photo: v.photo || '' });
@@ -1060,7 +1124,16 @@ A.pickName = function (el) { var n = eatFind(view().names, el.getAttribute('data
 A.pickCentre = function (el) { S.sess.centre = el.getAttribute('data-id'); remember(); S.meal = defaultMeal(); go('people'); };
 A.who = function () { S.scr = 'name'; render(); };
 A.signout = function () { signOut(''); };
-A.dayPick = function (el) { var d = el.value; if (!eatIsDate(d) || d > todayStr()) return render(); peopleFlush(); S.date = d; S.week = eatMonday(d); fixMeal(); enter(S.scr); render(); };
+A.dayAsk = function () { peopleFlush(); askDay(true); render(); };
+A.calDay = function (el) { var d = el.getAttribute('data-d'); if (!eatIsDate(d) || d > todayStr()) return; S.pick = d; S.keepScroll = true; render(); };
+A.calMonth = function (el) { var y = Number(S.calM.slice(0, 4)), m = Number(S.calM.slice(5, 7)) - 1 + Number(el.getAttribute('data-d')); var dt = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 8) + '01'; if (dt > todayStr()) return; S.calM = dt; S.keepScroll = true; render(); };
+A.calToday = function () { S.pick = todayStr(); S.calM = S.pick.slice(0, 8) + '01'; S.keepScroll = true; render(); };
+A.dayConfirm = function () {
+  var d = S.pick || todayStr(); S.dayOk = true;
+  /* the same day: what the person was writing stays; another day: its numbers are read */
+  if (d !== S.date) { peopleFlush(); S.date = d; S.week = eatMonday(d); fixMeal(); enter(S.scr); }
+  render();
+};
 A.day = function (el) { peopleFlush(); var d = Number(el.getAttribute('data-d')); S.date = d === 0 ? todayStr() : eatAddDays(S.date, d); if (S.date > todayStr()) S.date = todayStr(); fixMeal(); enter(S.scr); render(); };
 function fixMeal() { if (centreMeals().indexOf(S.meal) < 0) S.meal = defaultMeal(); }
 A.meal = function (el) { peopleFlush(); S.meal = el.getAttribute('data-m'); enter(S.scr); S.keepScroll = true; render(); };
@@ -1177,21 +1250,30 @@ A.noteSave = function () {
   var f = S.f, db = view(), no = eatNoteNo(f.no), q = {}, any = false;
   if (!no) { S.notice = 'Write the note number: the red number on the note.'; return render(); }
   if (!eatIsDate(f.date) || f.date > todayStr()) { S.notice = 'Check the date: it cannot be after today.'; return render(); }
+  var dl = S.sess.mode === 'delivery';
+  if (!eatCentre(db, f.centre)) { S.notice = 'Choose who the note is for.'; return render(); }
   for (var k in f.q) { var n = eatNum(f.q[k]); if (n != null && n > 0) { q[k] = n; any = true; } }
   if (!any) { S.notice = 'Write at least one quantity.'; return render(); }
-  if (!f.days && !f.daysOk) { f.daysOk = true; S.notice = 'How long should this delivery last? Choose the days, or press Save again to leave it empty.'; return render(); }
+  if (!dl && !f.days && !f.daysOk) { f.daysOk = true; S.notice = 'How long should this delivery last? Choose the days, or press Save again to leave it empty.'; return render(); }
   var other = eatNote(db, no);
   if (other && no !== f.orig && f.dupOk !== no) { f.dupOk = no; S.notice = 'Note ' + no + ' is already saved (' + centreName(other.centre) + ', ' + dayName(other.date) + '). Press Save again to replace it.'; return render(); }
   /* a new number for the same paper note: the old number is removed */
   if (f.orig && f.orig !== no) { var old = eatNote(db, f.orig); if (old) queueNote(old.centre, old.date, { no: old.data.no, q: old.data.q, days: old.data.days, remark: old.data.remark, recv: old.data.recv, off: true }); }
   queueNote(f.centre, f.date, { no: no, q: q, parts: (f.parts || []).filter(function (pt) { return pt.to !== f.centre; }), days: f.days || null, remark: (f.remark || '').trim(), recv: (f.recv || '').trim(), photo: f.photo || '' });
+  if (dl) {
+    /* back to the photos: the next note of the same picture, or the thank you */
+    var v = S.dvBack; S.dvBack = null;
+    if (v && v.reads) { v.saved.push(no); if (v.i + 1 < v.reads.length) { v.i++; v.sentence = readSentence(view(), v.reads[v.i]); S.dv = v; } else S.dv = { step: 'saved', nos: v.saved, unclear: v.unclear }; }
+    else S.dv = { step: 'saved', nos: [no], unclear: 0 };
+    return go('deliver');
+  }
   S.week = eatMonday(f.date); go('deliveries'); S.good = 'Note ' + no + ' saved.'; render();
 };
 A.noteOff = function () {
   if (!S.f.offAsk) { S.f.offAsk = true; S.keepScroll = true; return render(); }
   var old = eatNote(view(), S.f.orig);
   if (old) queueNote(old.centre, old.date, { no: old.data.no, q: old.data.q, days: old.data.days, remark: old.data.remark, recv: old.data.recv, off: true });
-  var no = S.f.orig; go('deliveries'); S.good = 'Note ' + no + ' removed.'; render();
+  var no = S.f.orig; if (S.sess.mode === 'delivery') { S.dv = { step: 'start' }; go('deliver'); } else go('deliveries'); S.good = 'Note ' + no + ' removed.'; render();
 };
 A.saveCount = function () {
   var db = view(), f = S.f, miss = db.items.filter(function (it) { return it.stock && !f.nc[it.id] && eatNum(f.q[it.id]) == null; }).map(function (it) { return it.name; });
@@ -1402,14 +1484,19 @@ function exportXlsx() {
   });
   var stock = { name: 'In the store now', head: ['Centre', 'Item', 'Last count', 'Date of the count', 'Delivered since', 'Used since', 'Now (expected)', 'Unit'], rows: [] };
   eatCanteens(db).forEach(function (c) { var st = eatStock(db, c.id, todayStr()); db.items.forEach(function (it) { var s = st[it.id]; if (s) stock.rows.push([c.name, it.name, s.start, s.startDate || '', s.inn, s.used, s.expected, it.unit]); }); });
+  /* the store week by week, from the first week with data: expected next to counted */
+  var chk = { name: 'Store check by week', head: ['Week from', 'Week to', 'Centre', 'Item', 'Unit', 'Start', 'Delivered', 'Cooked', 'Expected', 'Counted', 'Difference', 'Start from the count of', 'End counted on', 'Days with a daily count', 'Days'], rows: [] };
+  var firstW = E.length ? eatMonday(E[0].date) : eatMonday(todayStr());
+  for (var wk = firstW, g = 0; wk <= eatMonday(todayStr()) && g < 120; wk = eatAddDays(wk, 7), g++) eatCanteens(db).forEach(function (c) {
+    var w = eatWeekCheck(db, c.id, wk, todayStr());
+    db.items.forEach(function (it) { var x = w.items[it.id]; if (!x || (!x.start && !x.inn && !x.used && !x.counted)) return; chk.rows.push([wk, eatAddDays(wk, 6), c.name, it.name, it.unit, x.start == null ? '' : x.start, x.inn, x.used, x.expected == null ? '' : x.expected, x.counted === undefined ? 'Not yet' : (x.counted === null ? 'Not counted' : x.counted), x.diff == null ? '' : x.diff, w.startDate, w.endDate, w.daysFood, w.days]); });
+  });
   var com = { name: 'Comments', head: ['Time', 'Who', 'Screen', 'Comment', 'Done'], rows: (db.comments || []).map(function (c) { return [localTime(c.at), c.byName, c.screen, c.text, c.done ? 'Done' : '']; }) };
-  saveFile('CYP-EAT_' + todayStr() + '.xlsx', makeXlsx([people, day].concat(food.rows.length ? [food] : []).concat([rec, end, stock, com])));
+  saveFile('CYP-EAT_' + todayStr() + '.xlsx', makeXlsx([people, day].concat(food.rows.length ? [food] : []).concat([rec, end, chk, stock, com])));
 }
 
 /* ===================== events ===================== */
 document.addEventListener('click', function (ev) {
-  /* the day in the day bar: open the calendar of the phone or computer */
-  var cal = ev.target.closest('[data-cal]'); if (cal) { try { if (cal.showPicker) cal.showPicker(); } catch (e) {} return; }
   var el = ev.target.closest('[data-a]'); if (!el || el.disabled) return;
   var a = el.getAttribute('data-a'); if (A[a]) { ev.preventDefault(); A[a](el); }
 });
@@ -1433,9 +1520,11 @@ window.addEventListener('beforeinstallprompt', function (e) { e.preventDefault()
 window.addEventListener('appinstalled', function () { S.installEvt = null; KV.set('installed', true); if (S.modal === installModal) closeModal(); bgRender(); });
 setInterval(function () { if (S.sess && document.visibilityState === 'visible') sync(); }, 30000);
 document.addEventListener('visibilitychange', function () {
-  if (document.visibilityState === 'hidden') { peopleFlush(); return; }
+  if (document.visibilityState === 'hidden') { peopleFlush(); S.hiddenAt = Date.now(); return; }
   if (!S.sess) return;
-  newDay(); sync();
+  var away = S.hiddenAt ? Date.now() - S.hiddenAt : 0; S.hiddenAt = 0;
+  newDay(); if (away > 30 * 60000 && S.dayOk && S.sess.mode === 'entry') { askDay(true); bgRender(); }
+  sync();
 });
 window.addEventListener('pagehide', function () { peopleFlush(); });
 /* the app left open overnight, with or without internet: the next day starts on the new date */
@@ -1443,7 +1532,9 @@ function newDay() {
   var t = todayStr(); if (!S.today) S.today = t;
   if (t === S.today) return;
   var wasToday = S.date === S.today; S.today = t;
-  if (wasToday) { S.date = t; S.week = eatMonday(t); fixMeal(); enter(S.scr); render(); }
+  askDay(true);
+  if (wasToday) { peopleFlush(); S.date = t; S.week = eatMonday(t); S.pick = t; S.calM = t.slice(0, 8) + '01'; fixMeal(); enter(S.scr); render(); }
+  else bgRender();
 }
 setInterval(function () { if (S.sess) newDay(); }, 60000);
 

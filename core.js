@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.12';
+var EAT_VERSION = 'alpha 0.13';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 var EAT_ROLES = ['Volunteer', 'Canteen', 'Educator'];
 /* three accesses: entry (people and food), delivery (photos of the delivery notes), admin (overview) */
@@ -294,6 +294,53 @@ function eatWeekCount(db, centre, monday, type) {
   }
   return hit;
 }
+/* the store of one centre in one week, to compare what should be there with what is there:
+   start (the stock in the morning of Monday, carried from the last count; or a count at the start of this week on the old sheets)
+   + delivered − cooked (from the daily counts) = expected; next to it the count at the end of the week, and the difference.
+   Without a count at the end of the week it runs to today (Sunday at most). */
+function eatWeekCheck(db, centre, monday, today) {
+  var sun = eatAddDays(monday, 6), end = eatWeekCount(db, centre, monday, 'endweek'), sw = eatWeekCount(db, centre, monday, 'startweek');
+  if (sw && end && sw.date > end.date) sw = null;
+  var to = end ? end.date : (sun < today ? sun : today), from = sw ? sw.date : monday;
+  var out = { from: from, to: to, endDate: end ? end.date : '', startDate: sw ? sw.date : '', startCounted: !!sw, days: 0, daysFood: 0, daysSkipped: 0, items: {} };
+  var st = sw ? null : eatStock(db, centre, monday, true), i, e, id, x;
+  function r2(v) { return Math.round(v * 100) / 100; }
+  for (i = 0; i < db.items.length; i++) {
+    var it = db.items[i]; if (!it.stock) continue;
+    var start = sw ? (sw.data.nc && sw.data.nc[it.id] ? null : (sw.data.q[it.id] != null ? sw.data.q[it.id] : 0)) : (st[it.id] && st[it.id].startDate ? st[it.id].expected : null);
+    if (!sw && st[it.id] && st[it.id].startDate && !out.startDate) out.startDate = st[it.id].startDate;
+    out.items[it.id] = { start: start, inn: 0, used: 0, usedOk: true, expected: null, counted: end ? (end.data.nc && end.data.nc[it.id] ? null : (end.data.q[it.id] != null ? end.data.q[it.id] : 0)) : undefined, diff: null };
+  }
+  if (to < from) return out;
+  for (i = 0; i < db.entries.length; i++) {
+    e = db.entries[i];
+    if (e.del || e.date < from || e.date > to) continue;
+    var nq = e.type === 'received' && e.centre === centre ? e.data.q : (e.type === 'note' && !e.data.off && eatNoteHas(e, centre) ? eatNoteQ(e, centre) : null);
+    if (nq) for (id in nq) if (out.items[id] && nq[id] != null) out.items[id].inn += nq[id];
+  }
+  for (var d = from, guard = 0; d <= to && guard < 8; d = eatAddDays(d, 1), guard++) {
+    var uses = eatUsesOfDay(db, centre, d), food = false, skip = false;
+    out.days++;
+    for (var m = 0; m < uses.length; m++) {
+      var u = uses[m];
+      if (u.skipped) skip = true;
+      if (!u.hasBefore) continue;
+      food = true;
+      for (id in out.items) {
+        if (!(id in u.used)) continue;
+        if (u.usedU[id] == null) { out.items[id].usedOk = false; continue; }
+        out.items[id].used += u.usedU[id];
+      }
+    }
+    if (food) out.daysFood++; else if (skip) out.daysSkipped++;
+  }
+  for (id in out.items) {
+    x = out.items[id]; x.inn = r2(x.inn); x.used = r2(x.used);
+    x.expected = x.start == null || !x.usedOk ? null : r2(x.start + x.inn - x.used);
+    x.diff = x.expected == null || x.counted == null ? null : r2(x.counted - x.expected);
+  }
+  return out;
+}
 /* the last day a delivery should cover */
 function eatNoteUntil(e) { var n = e && e.data ? e.data.days : null; return n ? eatAddDays(e.date, n - 1) : ''; }
 
@@ -562,4 +609,4 @@ function eatHandle(req, store) {
   for (i = 0; i < db.comments.length; i++) if (db.comments[i].rev > since && (mode === 'admin')) out.comments.push(db.comments[i]);
   return out;
 }
-if (typeof module !== 'undefined') module.exports = { eatNewDb: eatNewDb, eatApply: eatApply, eatHandle: eatHandle, eatMealUse: eatMealUse, eatNote: eatNote, eatNotes: eatNotes, eatNoteGaps: eatNoteGaps, eatNoteNo: eatNoteNo, eatUpgrade: eatUpgrade, eatConv: eatConv, eatStock: eatStock, EAT_PACKS: EAT_PACKS, eatPlaceMatch: eatPlaceMatch, eatNoteQ: eatNoteQ, eatNoteHas: eatNoteHas, eatPlates: eatPlates, eatCanteens: eatCanteens, eatPlaces: eatPlaces, eatDayUse: eatDayUse, eatDayMenu: eatDayMenu, eatDayRows: eatDayRows, eatUsesOfDay: eatUsesOfDay, eatNum: eatNum, eatLeft: eatLeft, eatWeekCount: eatWeekCount, eatNoteUntil: eatNoteUntil, eatPerPlate: eatPerPlate, eatRows: eatRows, eatMenuOf: eatMenuOf, eatGet: eatGet, eatKey: eatKey, eatMonday: eatMonday, eatAddDays: eatAddDays, eatToday: eatToday, eatWeekday: eatWeekday, EAT_VERSION: EAT_VERSION };
+if (typeof module !== 'undefined') module.exports = { eatNewDb: eatNewDb, eatApply: eatApply, eatHandle: eatHandle, eatMealUse: eatMealUse, eatNote: eatNote, eatNotes: eatNotes, eatNoteGaps: eatNoteGaps, eatNoteNo: eatNoteNo, eatUpgrade: eatUpgrade, eatConv: eatConv, eatStock: eatStock, eatWeekCheck: eatWeekCheck, EAT_PACKS: EAT_PACKS, eatPlaceMatch: eatPlaceMatch, eatNoteQ: eatNoteQ, eatNoteHas: eatNoteHas, eatPlates: eatPlates, eatCanteens: eatCanteens, eatPlaces: eatPlaces, eatDayUse: eatDayUse, eatDayMenu: eatDayMenu, eatDayRows: eatDayRows, eatUsesOfDay: eatUsesOfDay, eatNum: eatNum, eatLeft: eatLeft, eatWeekCount: eatWeekCount, eatNoteUntil: eatNoteUntil, eatPerPlate: eatPerPlate, eatRows: eatRows, eatMenuOf: eatMenuOf, eatGet: eatGet, eatKey: eatKey, eatMonday: eatMonday, eatAddDays: eatAddDays, eatToday: eatToday, eatWeekday: eatWeekday, EAT_VERSION: EAT_VERSION };
