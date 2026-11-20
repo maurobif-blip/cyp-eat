@@ -309,6 +309,9 @@ function topBar() {
 }
 function centreName(id) { var c = eatCentre(view(), id); return c ? c.name : id; }
 function centreMeals() { var c = eatCentre(view(), S.sess.centre); return c ? c.meals : ['Lunch']; }
+/* the meals someone counts: without the meals that always have the same number of plates (dinner at Minsundu) */
+function countMeals() { var ms = centreMeals().filter(function (m) { return eatFixed(view(), S.sess.centre, m) == null; }); return ms.length ? ms : centreMeals().slice(0, 1); }
+function fixedMeals() { return centreMeals().filter(function (m) { return countMeals().indexOf(m) < 0; }); }
 function navBar(on) {
   var items = S.sess.mode === 'admin' ? [['overview', 'Overview', 'week'], ['settings', 'Settings', 'gear']] : [['people', 'People', 'people'], ['today', 'Daily', 'food'], ['week', 'Weekly', 'week']];
   return '<nav class="bottom" aria-label="Main"><div class="in2">' + items.map(function (x) { return '<button class="navi' + (x[0] === on ? ' on' : '') + '" data-a="go" data-to="' + x[0] + '"' + (x[0] === on ? ' aria-current="page"' : '') + '>' + ic(x[2]) + x[1] + '</button>'; }).join('') + '</div></nav>';
@@ -471,7 +474,7 @@ var DAYSCR = { people: 1, today: 1, menu: 1, before: 1, after: 1 };
 function askDay(keep) { S.dayOk = false; S.pick = keep && S.date ? S.date : todayStr(); S.calM = S.pick.slice(0, 8) + '01'; }
 function needDay() { return !!(S.sess && S.sess.mode === 'entry' && S.sess.centre && !S.dayOk && DAYSCR[S.scr]); }
 function dayPickScreen() {
-  var db = view(), t = todayStr(), c = S.sess.centre, pick = S.pick || t, m0 = S.calM || pick.slice(0, 8) + '01', meals = centreMeals();
+  var db = view(), t = todayStr(), c = S.sess.centre, pick = S.pick || t, m0 = S.calM || pick.slice(0, 8) + '01', meals = countMeals();
   var y = Number(m0.slice(0, 4)), mo = Number(m0.slice(5, 7)), n = new Date(Date.UTC(y, mo, 0)).getUTCDate(), off = (eatWeekday(m0) + 6) % 7, cells = '';
   for (var i = 0; i < off; i++) cells += '<span></span>';
   for (var d = 1; d <= n; d++) {
@@ -489,7 +492,8 @@ function dayPickScreen() {
     (isT ? '' : '<button class="btn" data-a="calToday">Back to today</button>');
 }
 function mealSeg() {
-  var ms = centreMeals();
+  var ms = countMeals();
+  if (ms.length < 2) return ''; /* one meal to count: nothing to choose */
   return '<div class="seg" style="grid-template-columns:repeat(' + ms.length + ',minmax(0,1fr))">' + ms.map(function (m) { var st = m === S.meal ? curState() : savedState(eatGet(view(), 'people', S.sess.centre, S.date, m)); return '<button class="btn' + (m === S.meal ? ' on' : '') + '" data-a="meal" data-m="' + m + '" aria-pressed="' + (m === S.meal) + '" aria-label="' + m + ': ' + STLAB[st].toLowerCase() + '"><span class="sd s-' + st + '"></span>' + m + '</button>'; }).join('') + '</div>';
 }
 
@@ -516,10 +520,11 @@ function peopleStatus() {
 }
 SCREENS.people = function () {
   var db = view(), c = S.sess.centre, n = curCount(), gs = centreGroups(), st = curState();
-  var all = centreMeals().map(function (m) { var p = eatGet(db, 'people', c, S.date, m), ms = m === S.meal ? st : savedState(p), pl = m === S.meal ? eatPlates({ data: pData() }) : (p ? eatPlates(p) : 0); return '<div class="row"><span class="b">' + m + '</span><span class="pill ' + STPILL[ms] + '">' + STLAB[ms] + (ms === 'none' ? '' : ': ' + plural(pl, 'plate', 'plates')) + '</span></div>'; }).join('');
+  var all = countMeals().map(function (m) { var p = eatGet(db, 'people', c, S.date, m), ms = m === S.meal ? st : savedState(p), pl = m === S.meal ? eatPlates({ data: pData() }) : (p ? eatPlates(p) : 0); return '<div class="row"><span class="b">' + m + '</span><span class="pill ' + STPILL[ms] + '">' + STLAB[ms] + (ms === 'none' ? '' : ': ' + plural(pl, 'plate', 'plates')) + '</span></div>'; }).join('');
   var grp = gs.length ? '<div class="seg" role="group" aria-label="Who eats" style="grid-template-columns:repeat(' + (gs.length + 1) + ',minmax(0,1fr))">' + [''].concat(gs).map(function (k) { var on = (S.f.grp || '') === k; return '<button class="btn' + (on ? ' on' : '') + '" data-a="grp" data-g="' + esc(k) + '" aria-pressed="' + on + '">' + esc(k || centreName(c)) + ' <span class="num">' + (k ? (S.f.g[k] || 0) : S.f.n) + '</span></button>'; }).join('') + '</div>' : '';
   return dayBar() + mealSeg() + grp +
     '<div style="display:flex;justify-content:center;padding:18px 0 6px"><button class="tap s-' + st + '" data-a="tap" aria-label="Add one plate' + (S.f.grp ? ' for ' + esc(S.f.grp) : '') + '"><span class="num" style="font-size:88px;font-weight:800;line-height:1" id="cnt">' + n + '</span><span style="font-size:20px;font-weight:700">' + (S.f.grp ? esc(S.f.grp) + ': +1' : 'Tap: +1') + '</span></button></div>' +
+    (countMeals().length < 2 ? '<div class="b" style="text-align:center;font-size:18px">' + S.meal + ' · ' + esc(centreName(c)) + '</div>' : '') +
     '<div style="text-align:center" id="pst" aria-live="polite">' + peopleStatus() + '</div>' +
     '<div class="adds"><button class="btn" data-a="add" data-n="5">+5</button><button class="btn" data-a="add" data-n="10">+10</button><button class="btn" data-a="adding">Other</button></div>' +
     (S.f.adding ? '<div class="card"><label class="lab" for="an">How many more plates? (counted by hand)</label><input id="an" class="in num" type="number" inputmode="numeric" min="1" data-f="an" data-focus><button class="btn pri" data-a="addOk">Add</button></div>' : '') +
@@ -528,7 +533,8 @@ SCREENS.people = function () {
       : '<button class="btn big" data-a="finish" style="background:var(--ok-ink);border-color:var(--ok-ink);color:#fff">' + ic('check') + 'Finish ' + S.meal.toLowerCase() + '</button>') +
     (S.f.typing ? '<div class="card"><label class="lab" for="tn">Number of plates in all' + (S.f.grp ? ' for ' + esc(S.f.grp) : '') + '</label><input id="tn" class="in num" type="number" inputmode="numeric" min="0" value="' + n + '" data-f="tn" data-focus><button class="btn" data-a="typeOk">OK</button></div>' : '<button class="btn link" data-a="typing">Type the number in all</button>') +
     '<span class="m s" style="text-align:center">Every change is saved by itself. Press Finish when the meal is over.</span>' +
-    '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">All meals, ' + dayName(S.date) + '</span>' + all + '</div>';
+    '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">All meals, ' + dayName(S.date) + '</span>' + all +
+      fixedMeals().map(function (m) { return '<div class="row"><span class="b">' + m + '</span><span class="pill">' + eatFixed(db, c, m) + ' plates every day · not counted</span></div>'; }).join('') + '</div>';
 };
 
 /* ---------- daily: the food of the whole day ---------- */
@@ -563,7 +569,7 @@ SCREENS.today = function () {
   if (sk && sk.data.on) out += '<div class="box em">Food not counted on ' + dayName(d) + '. People are counted.</div><button class="btn" data-a="skip" data-on="0">Undo</button>';
   else out += '<div style="display:flex;flex-direction:column;gap:8px">' +
     stepBtn('1', 'What do we eat today?', esc(dayMenuText(db, dm)) + (dm.saved ? '' : ' (plan)') + (dm.cook ? ' · Cook: ' + esc(dm.cook) : ''), 'menu', dm.saved ? 'ok' : 'em') +
-    stepBtn('2', 'Quantities for today', b ? esc(qtyLine(db, b.data.q, b.data.u)) : 'Food taken out of the store for the meals of today', 'before', b ? 'ok' : (dm.saved ? 'em' : 'off')) +
+    stepBtn('2', 'Quantities for today', b ? esc(qtyLine(db, b.data.q, b.data.u)) : 'Food taken out of the store and the cold room for the meals of today', 'before', b ? 'ok' : (dm.saved ? 'em' : 'off')) +
     (left ? stepBtn('3', 'Leftovers', a ? 'Saved' : 'What is left at the end of the day', 'after', a ? 'ok' : (b ? 'em' : 'off')) : '') +
     '</div><button class="btn" data-a="skip" data-on="1">I didn\'t count the food</button>';
   /* the day: plates and the amount a plate */
@@ -630,7 +636,7 @@ function foodRowsHtml(f, after) {
 }
 SCREENS.before = function () {
   var db = view(), f = S.f, more = db.items.filter(function (it) { return f.rows.indexOf(it.id) < 0; });
-  return backLink() + '<h1>Quantities for today</h1>' + dayTitle() + '<div class="box info">Write the food taken out of the store for the meals of today, in kg, bags or trays. A half or a quarter: tap ½ or ¼, or write 0.5 or 0.25.</div>' +
+  return backLink() + '<h1>Quantities for today</h1>' + dayTitle() + '<div class="box info">Write the food taken out of the store and the cold room for the meals of today, in kg, bags or trays. A half or a quarter: tap ½ or ¼, or write 0.5 or 0.25.</div>' +
     '<div class="card" style="gap:12px">' + (f.rows.length ? foodRowsHtml(f, false) : '<span class="m">No food on the menu.</span>') + '</div>' +
     (more.length ? '<div class="card"><span class="lab">Add another food</span><div class="chips">' + more.map(function (it) { return '<button class="btn" data-a="addRow" data-id="' + it.id + '">+ ' + esc(it.name) + '</button>'; }).join('') + '</div></div>' : '') +
     '<button class="btn pri big" data-a="saveBefore">Save</button>';
@@ -718,7 +724,7 @@ function countScreen() {
     return qRow(it.id, it.name, it.unit, f.q[it.id], !!f.nc[it.id], stepOf(it.unit)) +
       '<div class="m s num">' + (s.startDate ? 'Counted ' + dayName(s.startDate) + ' ' : 'Start ') + fmt(s.start) + ' + in ' + fmt(s.inn) + ' − used ' + fmt(s.used) + (s.usedOk ? '' : ' (part not counted)') + ' = expected ' + fmt(s.expected) + '</div><div id="d_' + it.id + '">' + pill + '</div>';
   }).join('');
-  return weekLink() + '<h1>' + (start ? 'Start of the week' : 'End of the week') + '</h1><div class="sec">' + (start ? 'What is in the store at the start of the week, before any food is taken out' : 'What is left at the end of the week, after the last meal') + ' · ' + esc(centreName(S.sess.centre)) + '</div>' +
+  return weekLink() + '<h1>' + (start ? 'Start of the week' : 'End of the week') + '</h1><div class="sec">' + (start ? 'What is in the store and in the cold room at the start of the week, before any food is taken out' : 'What is left in the store and in the cold room at the end of the week, after the last meal') + ' · ' + esc(centreName(S.sess.centre)) + '</div>' +
     '<div class="card"><span class="lab">Day of the count</span>' + daysSeg(eatMonday(f.date), f.date) + '<span class="m s">' + dayName(f.date) + (start ? ', morning' : ', evening') + '</span></div>' +
     '<div class="card" style="gap:12px">' + rows + '</div>' +
     '<button class="btn pri big" data-a="saveCount">' + (start ? 'Save the start of the week' : 'Save and carry to next week') + '</button>';
@@ -737,7 +743,7 @@ SCREENS.week = function () {
   out += '<div class="card" style="gap:0"><div style="display:flex;align-items:center;gap:12px;padding-bottom:8px"><span class="dot ' + (notes.length ? 'ok' : 'off') + '">' + (notes.length ? ic('check') : '1') + '</span><span style="display:flex;flex-direction:column"><span class="b">Deliveries</span><span class="m s">Saved by the deliveries person from the photos of the notes</span></span></div>' +
     (notes.length ? notes.map(function (n) { return '<div class="row" style="flex-direction:column;align-items:stretch;gap:2px"><span class="b">No. ' + esc(n.data.no) + ' · ' + dayName(n.date) + '</span><span class="s">' + esc(noteItems(db, eatNoteQ(n, c))) + '</span>' + (n.centre === c && n.data.parts ? '<span class="m s">On the same note: ' + esc(partsText(db, n.data.parts)) + '</span>' : (n.centre !== c ? '<span class="m s">Part of the note for ' + esc(centreName(n.centre)) + '</span>' : '')) + '</div>'; }).join('') +
       '<div class="row" style="border-top:2px solid var(--ink)"><span class="b">Week</span><span class="b s" style="text-align:right">' + esc(noteItems(db, tot)) + '</span></div>' : '<span class="m">No delivery for ' + esc(centreName(c)) + ' this week yet.</span>') + '</div>';
-  out += stepBtn('2', 'Stock at the end of the week', ew ? 'Counted ' + dayName(ew.date) : 'What is left in the store after the last meal of the week', 'endweek', ew ? 'ok' : 'em');
+  out += stepBtn('2', 'Stock at the end of the week', ew ? 'Counted ' + dayName(ew.date) : 'What is left in the store and in the cold room after the last meal of the week', 'endweek', ew ? 'ok' : 'em');
   /* balance: ordered this week − left at the end of the week; next to it, what the daily counts say was used */
   var last = ew ? ew.date : (sun < t ? sun : t), used = {}, usedOk = {};
   for (var d = mon; d <= last; d = eatAddDays(d, 1)) eatUsesOfDay(db, c, d).forEach(function (u) { if (!u.hasBefore) return; for (var id in u.usedU) { if (u.usedU[id] == null) { usedOk[id] = false; continue; } used[id] = (used[id] || 0) + u.usedU[id]; } });
@@ -859,10 +865,10 @@ function weekBar() {
 }
 function weekStats(db, c) {
   var out = { meals: {}, use: {}, base: {}, foodDays: 0, foodDone: 0, skipped: 0 }, cen = eatCentre(db, c), t = todayStr();
-  cen.meals.forEach(function (m) { out.meals[m] = { plates: 0, days: 0 }; });
+  cen.meals.forEach(function (m) { out.meals[m] = { plates: 0, days: 0, fixed: eatFixed(db, c, m) }; });
   for (var i = 0; i < 7; i++) {
     var d = eatAddDays(S.week, i); if (d > t) break;
-    cen.meals.forEach(function (m) { var p = eatGet(db, 'people', c, d, m); if (p) { out.meals[m].plates += eatPlates(p); out.meals[m].days++; } });
+    cen.meals.forEach(function (m) { var x = out.meals[m], p = x.fixed == null ? eatGet(db, 'people', c, d, m) : null; if (x.fixed != null) { x.plates += x.fixed; x.days++; } else if (p) { x.plates += eatPlates(p); x.days++; } });
     var us = eatUsesOfDay(db, c, d); out.foodDays++;
     if (us.length && us.every(function (u) { return u.skipped; })) { out.skipped++; continue; }
     if (us.some(function (u) { return u.closed; })) out.foodDone++;
@@ -883,14 +889,14 @@ SCREENS.overview = function () {
   }).join('');
   var plates = eatCanteens(db).map(function (c) {
     var s = stats[c.id];
-    return '<div class="card" style="gap:0"><div class="b" style="font-size:18px;padding-bottom:4px">' + esc(c.name) + '</div>' + c.meals.map(function (m) { var x = s.meals[m]; return '<div class="row"><span>' + m + '</span><span class="num">' + (x.days ? '<span class="b">' + Math.round(x.plates / x.days) + '</span> a day · ' + x.plates + ' in ' + plural(x.days, 'day', 'days') : '<span class="m">No count</span>') + '</span></div>'; }).join('') + '</div>';
+    return '<div class="card" style="gap:0"><div class="b" style="font-size:18px;padding-bottom:4px">' + esc(c.name) + '</div>' + c.meals.map(function (m) { var x = s.meals[m]; return '<div class="row"><span>' + m + '</span><span class="num">' + (x.fixed != null ? '<span class="b">' + x.fixed + '</span> a day · fixed, not counted' : (x.days ? '<span class="b">' + Math.round(x.plates / x.days) + '</span> a day · ' + x.plates + ' in ' + plural(x.days, 'day', 'days') : '<span class="m">No count</span>')) + '</span></div>'; }).join('') + '</div>';
   }).join('');
   return '<h1>Overview</h1>' + weekBar() +
     '<div class="sec">Plates</div>' + plates +
     '<div class="sec">Food a plate</div><div class="chips">' + db.items.map(function (x) { return '<button class="btn' + (x.id === it.id ? ' on' : '') + '" data-a="item" data-id="' + x.id + '">' + esc(x.name) + '</button>'; }).join('') + '</div>' +
     '<div class="card" style="gap:12px"><div style="display:flex;justify-content:space-between"><span class="b" style="font-size:18px">' + esc(it.name) + '</span><span class="m s b">' + unitTxt + '</span></div>' + bars + '</div>' +
     '<div class="sec">Delivery notes</div>' + notesCard(db) +
-    '<div class="sec">In the store: expected and counted</div><span class="m s">Start of the week + delivered − cooked (from the daily counts) = expected. Next to it, the count at the end of the week. A difference is food that is not explained.</span>' + eatCanteens(db).map(function (c) { return checkCard(db, c.id); }).join('') +
+    '<div class="sec">In the store: expected and counted</div><span class="m s">The store and the cold room together. Start of the week + delivered − cooked (from the daily counts) = expected. Next to it, the count at the end of the week. A difference is food that is not explained.</span>' + eatCanteens(db).map(function (c) { return checkCard(db, c.id); }).join('') +
     '<button class="btn" data-a="export">Export in Excel</button><div class="ver">CYP EAT ' + EAT_VERSION + (S.lastSync ? ' · updated ' + new Date(S.lastSync).toTimeString().slice(0, 5) : '') + '</div>';
 };
 function notesCard(db) {
@@ -927,7 +933,7 @@ function checkCard(db, c) {
 /* settings: a menu of sections; each section opens on its own (comment of 20/11: too much on one page) */
 var SETSECS = [
   ['users', 'Users', 'Names of the people who count, and their role'],
-  ['centres', 'Centres and meals', 'Meals of each centre, leftovers, groups that eat there'],
+  ['centres', 'Centres and meals', 'Lunch and dinner of each centre, fixed plates, leftovers, groups'],
   ['food', 'Food and units', 'Kg in a bag, eggs in a tray'],
   ['places', 'Places that receive deliveries', 'Where the delivery notes go'],
   ['pins', 'PINs and link', 'The three PINs, the link for the people who count'],
@@ -954,7 +960,10 @@ SCREENS.settings = function () {
     '<div class="seg" style="grid-template-columns:repeat(3,minmax(0,1fr))">' + EAT_ROLES.map(function (r) { return '<button class="btn' + ((S.f.role || 'Volunteer') === r ? ' on' : '') + '" data-a="role" data-r="' + r + '">' + r + '</button>'; }).join('') + '</div>' +
     '<button class="btn pri" data-a="nameAdd">Add the name</button></div></div>'; },
     centres: function () { return '<div class="card" style="gap:0"><span class="b" style="font-size:18px;padding-bottom:6px">Centres and meals</span>' + eatCanteens(db).map(function (c) {
-      return '<div class="row" style="flex-direction:column;align-items:stretch"><span class="b">' + esc(c.name) + '</span><div class="seg" style="grid-template-columns:repeat(3,minmax(0,1fr))">' + EAT_MEALS.map(function (m) { var on = c.meals.indexOf(m) >= 0; return '<button class="btn' + (on ? ' on' : '') + '" data-a="cmeal" data-id="' + c.id + '" data-m="' + m + '" aria-pressed="' + on + '">' + m + '</button>'; }).join('') + '</div>' +
+      return '<div class="row" style="flex-direction:column;align-items:stretch"><span class="b">' + esc(c.name) + '</span><div class="seg" style="grid-template-columns:repeat(2,minmax(0,1fr))">' + EAT_MEALS_ON.map(function (m) { var on = c.meals.indexOf(m) >= 0; return '<button class="btn' + (on ? ' on' : '') + '" data-a="cmeal" data-id="' + c.id + '" data-m="' + m + '" aria-pressed="' + on + '">' + m + '</button>'; }).join('') + '</div>' +
+        c.meals.filter(function (m) { return EAT_MEALS_ON.indexOf(m) >= 0; }).map(function (m) { var k = 'fx_' + c.id + '_' + m, fx = c.fixed && c.fixed[m] ? c.fixed[m] : '', val = S.f[k] != null ? S.f[k] : fx;
+          return '<div style="display:flex;gap:6px;align-items:center;padding-top:6px"><label for="' + k + '" class="s" style="flex:1 1 auto">' + m + ': ' + (fx ? '<span class="b">always ' + fx + ' plates, not counted</span>' : 'counted by tapping') + '</label><input id="' + k + '" class="in num" style="width:84px;text-align:right" type="text" inputmode="numeric" aria-label="' + m + ' at ' + esc(c.name) + ': fixed number of plates, empty when counted" data-f="' + k + '" value="' + esc(String(val)) + '"><button class="btn" data-a="fixSave" data-id="' + c.id + '" data-m="' + m + '">Save</button></div>'; }).join('') +
+        '<span class="m s" style="padding-top:2px">A number: the meal always has that many plates and nobody counts it. Empty: counted by tapping.</span>' +
         '<button class="nc' + (c.left ? ' on' : '') + '" data-a="cleft" data-id="' + c.id + '" aria-pressed="' + !!c.left + '" style="align-self:flex-start;margin-top:6px">Leftovers at the end of the day: ' + (c.left ? 'counted' : 'not counted') + '</button>' +
         '<span class="m s" style="padding-top:6px">Also eat here (counted apart): ' + ((c.groups || []).length ? c.groups.map(function (g) { return '<button class="nc" data-a="grpOff" data-id="' + c.id + '" data-g="' + esc(g) + '" aria-label="Remove ' + esc(g) + '">' + esc(g) + ' ×</button>'; }).join(' ') : 'nobody') + '</span>' +
         '<div style="display:flex;gap:6px;padding-top:4px"><input class="in" type="text" aria-label="A group that eats at ' + esc(c.name) + '" data-f="grp_' + c.id + '" value="' + esc(S.f['grp_' + c.id] || '') + '"><button class="btn" data-a="grpAdd" data-id="' + c.id + '">Add</button></div></div>';
@@ -1039,7 +1048,7 @@ function enter(scr) {
   }
 }
 function defaultMeal() {
-  var ms = centreMeals(), h = new Date(Date.now() + 2 * 3600000).getUTCHours();
+  var ms = countMeals(), h = new Date(Date.now() + 2 * 3600000).getUTCHours();
   var want = h < 10 ? 'Breakfast' : (h < 16 ? 'Lunch' : 'Dinner');
   if (ms.indexOf(want) >= 0) return want;
   return ms.indexOf('Lunch') >= 0 ? 'Lunch' : ms[0];
@@ -1151,7 +1160,7 @@ A.dayConfirm = function () {
   render();
 };
 A.day = function (el) { peopleFlush(); var d = Number(el.getAttribute('data-d')); S.date = d === 0 ? todayStr() : eatAddDays(S.date, d); if (S.date > todayStr()) S.date = todayStr(); fixMeal(); enter(S.scr); render(); };
-function fixMeal() { if (centreMeals().indexOf(S.meal) < 0) S.meal = defaultMeal(); }
+function fixMeal() { if (countMeals().indexOf(S.meal) < 0) S.meal = defaultMeal(); }
 A.meal = function (el) { peopleFlush(); S.meal = el.getAttribute('data-m'); enter(S.scr); S.keepScroll = true; render(); };
 /* people: every change is kept on the phone at once and saved 1.5 seconds after the last tap (or on leaving the screen) */
 function peopleChanged(inc) {
@@ -1340,6 +1349,11 @@ A.readerKey = function () {
 };
 A.grpAdd = function (el) { var c = eatCentre(view(), el.getAttribute('data-id')), t = (S.f['grp_' + c.id] || '').trim(); if (!t) return; queue({ kind: 'centre_groups', cid: c.id, groups: (c.groups || []).concat([t]) }); S.f['grp_' + c.id] = ''; S.keepScroll = true; render(); };
 A.grpOff = function (el) { var c = eatCentre(view(), el.getAttribute('data-id')), g = el.getAttribute('data-g'); if (!confirm('Remove ' + g + ' from ' + c.name + '?')) return; queue({ kind: 'centre_groups', cid: c.id, groups: (c.groups || []).filter(function (x) { return x !== g; }) }); S.keepScroll = true; render(); };
+A.fixSave = function (el) {
+  var c = eatCentre(view(), el.getAttribute('data-id')), m = el.getAttribute('data-m'), k = 'fx_' + c.id + '_' + m, raw = S.f[k] != null ? String(S.f[k]).trim() : String((c.fixed || {})[m] || ''), n = raw === '' ? 0 : Math.round(Number(raw));
+  if (!isFinite(n) || n < 0 || n > 5000) { S.notice = 'Write a number of plates, or leave it empty.'; return render(); }
+  queue({ kind: 'centre_fixed', cid: c.id, meal: m, n: n || '' }); delete S.f[k]; S.notice = ''; S.good = c.name + ', ' + m + ': ' + (n ? 'always ' + n + ' plates, not counted.' : 'counted by tapping.'); S.keepScroll = true; render();
+};
 A.cleft = function (el) { var c = eatCentre(view(), el.getAttribute('data-id')); queue({ kind: 'centre_left', cid: c.id, on: !c.left }); S.keepScroll = true; render(); };
 A.cmeal = function (el) {
   var c = eatCentre(view(), el.getAttribute('data-id')), m = el.getAttribute('data-m'), ms = c.meals.slice(), i = ms.indexOf(m);
@@ -1463,10 +1477,11 @@ function exportXlsx() {
   var food = { name: 'Food a meal (old)', head: ['Date', 'Day', 'Centre', 'Meal', 'Menu', 'Item', 'Before', 'Back', 'Unit written', 'Used', 'Unit', 'Plates', 'Kept for later meal', 'Amount a plate', 'Food not counted'], rows: [] };
   var rec = { name: 'Delivery notes', head: ['Note no.', 'Date', 'Day', 'Centre', 'Item', 'Quantity', 'Unit', 'Should last (days)', 'Until', 'Remark', 'Received by', 'Copied by'], rows: [] };
   var end = { name: 'Stock counts', head: ['Date', 'Day', 'Centre', 'Count', 'Item', 'Expected', 'Counted', 'Difference', 'Unit', 'By'], rows: [] };
-  var seen = {};
+  var seen = {}, fxDay = {};
+  E.forEach(function (e) { if (e.type !== 'people' || fxDay[e.centre + e.date]) return; fxDay[e.centre + e.date] = 1; var cc = eatCentre(db, e.centre); (cc ? cc.meals : []).forEach(function (m) { var fx = eatFixed(db, e.centre, m); if (fx != null) people.rows.push([e.date, WD[eatWeekday(e.date)], cc.name, m, fx, '', 'Fixed number, not counted', '', '']); }); });
   E.forEach(function (e) {
     var c = centreName(e.centre);
-    if (e.type === 'people') people.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, eatPlates(e), e.data.g ? e.data.n + ' ' + c + Object.keys(e.data.g).map(function (k) { return ', ' + e.data.g[k] + ' ' + k; }).join('') : '', e.data.done ? 'Yes' : 'Counting', e.byName, localTime(e.saved)]);
+    if (e.type === 'people' && eatFixed(db, e.centre, e.meal) == null) people.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, eatPlates(e), e.data.g ? e.data.n + ' ' + c + Object.keys(e.data.g).map(function (k) { return ', ' + e.data.g[k] + ' ' + k; }).join('') : '', e.data.done ? 'Yes' : 'Counting', e.byName, localTime(e.saved)]);
     if ((e.type === 'dbefore' || e.type === 'dskip') && !seen['d' + e.centre + e.date]) {
       seen['d' + e.centre + e.date] = 1;
       var du = eatDayUse(db, e.centre, e.date), db0 = eatGet(db, 'dbefore', e.centre, e.date, ''), da = eatLeft(db, e.centre) ? eatGet(db, 'dafter', e.centre, e.date, '') : null, dmn = eatDayMenu(db, e.centre, e.date), dmt = dayMenuText(db, dmn);
@@ -1509,6 +1524,7 @@ function exportXlsx() {
     var w = eatWeekCheck(db, c.id, wk, todayStr());
     db.items.forEach(function (it) { var x = w.items[it.id]; if (!x || (!x.start && !x.inn && !x.used && !x.counted)) return; chk.rows.push([wk, eatAddDays(wk, 6), c.name, it.name, it.unit, x.start == null ? '' : x.start, x.inn, x.used, x.expected == null ? '' : x.expected, x.counted === undefined ? 'Not yet' : (x.counted === null ? 'Not counted' : x.counted), x.diff == null ? '' : x.diff, w.startDate, w.endDate, w.daysFood, w.days]); });
   });
+  people.rows.sort(function (a, b) { var ka = a[0] + a[2] + EAT_MEALS.indexOf(a[3]), kb = b[0] + b[2] + EAT_MEALS.indexOf(b[3]); return ka < kb ? -1 : (ka > kb ? 1 : 0); });
   var com = { name: 'Comments', head: ['Time', 'Who', 'Screen', 'Comment', 'Done'], rows: (db.comments || []).map(function (c) { return [localTime(c.at), c.byName, c.screen, c.text, c.done ? 'Done' : '']; }) };
   saveFile('CYP-EAT_' + todayStr() + '.xlsx', makeXlsx([people, day].concat(food.rows.length ? [food] : []).concat([rec, end, chk, stock, com])));
 }
