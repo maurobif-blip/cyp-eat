@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.20';
+var EAT_VERSION = 'alpha 0.21';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 /* the meals a centre can have now (20/11: breakfast is left out for now; old breakfast counts are still read) */
 var EAT_MEALS_ON = ['Lunch', 'Dinner'];
@@ -428,6 +428,23 @@ function eatApply(db, mode, op, nowIso, info) {
     return { ok: true };
   }
   if (!admin()) return { ok: false, error: 'rights' };
+  /* before the real use starts: what was written while trying the app is taken out (people, menus, quantities, leftovers,
+     stock counts, marks). The delivery notes stay: they are real paper notes. Nothing is erased from the file: the entries
+     are marked as removed, like an entry that was replaced, so the phones drop them at their next sync. */
+  if (k === 'start_clean') {
+    if (op.confirm !== 'START') return { ok: false, error: 'fields' };
+    var until = eatText(op.until, 30) || nowIso, gone = 0, kept = 0;
+    for (var si = 0; si < db.entries.length; si++) {
+      var se = db.entries[si];
+      if (se.del) continue;
+      if (se.type === 'note') { kept++; continue; }
+      if ((se.saved || '') > until) continue;
+      se.del = true; bump(se); gone++;
+    }
+    info.clean = true;
+    info.audit.push({ time: nowIso, who: 'Overview', action: 'Start clean', detail: gone + ' test entries removed, ' + kept + ' delivery notes kept' });
+    return { ok: true, removed: gone, kept: kept };
+  }
   if (k === 'comment_done') {
     var cd = eatFind(db.comments, op.cid); if (!cd) return { ok: false, error: 'id' };
     cd.done = !!op.done; bump(cd); info.comments.push(cd); return { ok: true };
@@ -701,6 +718,13 @@ function details_(db, e) {
   return parts.join('; ');
 }
 var STEP_ = { menu: 'What we eat', before: 'Quantities before', after: 'Quantities after', skip: 'Food not counted', received: 'Food delivered', endweek: 'End of the week', startweek: 'Start of the week', dmenu: 'What we eat today', dbefore: 'Quantities for today', dafter: 'Leftovers', dskip: 'Food not counted' };
+/* after "start clean": the rows of the tests leave the sheets people, food and stock (the header stays; deliveries, log and comments stay) */
+function cleanSheets_() {
+  ['people', 'food', 'stock'].forEach(function (name) {
+    var sh = book_().getSheetByName(name); if (!sh) return;
+    var rows = sh.getLastRow() - 1; if (rows > 0) sh.getRange(2, 1, rows, Math.max(1, sh.getLastColumn())).clearContent();
+  });
+}
 function mirror_(db, list) {
   if (!list.length) return;
   for (var i = 0; i < list.length; i++) {
@@ -740,6 +764,7 @@ function store_() {
       if (id) DriveApp.getFileById(id).setContent(text); else P.setProperty('dbId', f.createFile(DB_FILE, text, 'application/json').getId());
       var day = new Date().toISOString().slice(0, 10);
       if (P.getProperty('backupDay') !== day) { f.createFile('cyp-eat-backup-' + day + '.json', text, 'application/json'); P.setProperty('backupDay', day); }
+      if (info && info.clean) cleanSheets_();
       if (info) { mirror_(db, info.entries || []); audit_(info.audit || []); comments_(info.comments || []); }
     }
   };
