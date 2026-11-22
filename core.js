@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.20';
+var EAT_VERSION = 'alpha 0.21';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 /* the meals a centre can have now (20/11: breakfast is left out for now; old breakfast counts are still read) */
 var EAT_MEALS_ON = ['Lunch', 'Dinner'];
@@ -428,6 +428,23 @@ function eatApply(db, mode, op, nowIso, info) {
     return { ok: true };
   }
   if (!admin()) return { ok: false, error: 'rights' };
+  /* before the real use starts: what was written while trying the app is taken out (people, menus, quantities, leftovers,
+     stock counts, marks). The delivery notes stay: they are real paper notes. Nothing is erased from the file: the entries
+     are marked as removed, like an entry that was replaced, so the phones drop them at their next sync. */
+  if (k === 'start_clean') {
+    if (op.confirm !== 'START') return { ok: false, error: 'fields' };
+    var until = eatText(op.until, 30) || nowIso, gone = 0, kept = 0;
+    for (var si = 0; si < db.entries.length; si++) {
+      var se = db.entries[si];
+      if (se.del) continue;
+      if (se.type === 'note') { kept++; continue; }
+      if ((se.saved || '') > until) continue;
+      se.del = true; bump(se); gone++;
+    }
+    info.clean = true;
+    info.audit.push({ time: nowIso, who: 'Overview', action: 'Start clean', detail: gone + ' test entries removed, ' + kept + ' delivery notes kept' });
+    return { ok: true, removed: gone, kept: kept };
+  }
   if (k === 'comment_done') {
     var cd = eatFind(db.comments, op.cid); if (!cd) return { ok: false, error: 'id' };
     cd.done = !!op.done; bump(cd); info.comments.push(cd); return { ok: true };
