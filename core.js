@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.22';
+var EAT_VERSION = 'beta 1.0';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 /* the meals a centre can have now (20/11: breakfast is left out for now; old breakfast counts are still read) */
 var EAT_MEALS_ON = ['Lunch', 'Dinner'];
@@ -444,6 +444,26 @@ function eatApply(db, mode, op, nowIso, info) {
     info.clean = true;
     info.audit.push({ time: nowIso, who: 'Overview', action: 'Start clean', detail: gone + ' test entries removed, ' + kept + ' delivery notes kept' });
     return { ok: true, removed: gone, kept: kept };
+  }
+  /* the counts of one day at one centre are taken out: a day counted to try the app, or counted on the wrong day.
+     The overview chooses what goes (plates, menu, quantities, leftovers, marks, stock count); the delivery notes are never touched.
+     Like start_clean, nothing is erased from the file: the entries are marked as removed and the phones drop them at their next sync. */
+  if (k === 'day_clean') {
+    var dc = eatCentre(db, op.centre), dts = op.types || [], dgone = [];
+    if (!dc || dc.place || !eatIsDate(op.date) || !dts.length) return { ok: false, error: 'fields' };
+    for (i = 0; i < dts.length; i++) if (dts[i] === 'note' || EAT_TYPES.indexOf(dts[i]) < 0) return { ok: false, error: 'fields' };
+    for (i = 0; i < db.entries.length; i++) {
+      var de = db.entries[i];
+      if (de.del || de.type === 'note' || de.centre !== op.centre || de.date !== op.date || dts.indexOf(de.type) < 0) continue;
+      de.del = true; bump(de); dgone.push(de);
+    }
+    if (dgone.length) {
+      info.gone = (info.gone || []).concat(dgone);
+      var dby = {}; for (i = 0; i < dgone.length; i++) dby[dgone[i].type] = (dby[dgone[i].type] || 0) + 1;
+      var dwords = []; for (var dk in dby) dwords.push(dk + ' ' + dby[dk]);
+      info.audit.push({ time: nowIso, who: 'Overview', action: 'Day removed', detail: dc.name + ' ' + op.date + ': ' + dwords.join(', ') });
+    }
+    return { ok: true, removed: dgone.length };
   }
   if (k === 'comment_done') {
     var cd = eatFind(db.comments, op.cid); if (!cd) return { ok: false, error: 'id' };

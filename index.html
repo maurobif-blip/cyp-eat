@@ -1133,6 +1133,46 @@ function checkCard(db, c, wide) {
   return '<div class="cyp-card cyp-card--stack" data-check="' + c + '">' + h3(esc(centreName(c))) + head +
     (rows ? (wide ? table([['Item'], ['Unit'], ['Start', 1], ['Delivered', 1], ['Cooked', 1], ['Expected', 1], ['Counted', 1], ['Difference', 1]], trs) : list(rows)) : '<p class="muted">Nothing yet.</p>') + warn + '</div>';
 }
+/* settings: the counts of one day at one centre are taken out (a day counted to try the app, or counted on the wrong day).
+   What is saved on that day is shown first; the overview ticks what goes and confirms in a window. The delivery notes are never touched. */
+var RMG = [
+  ['people', 'Plates', ['people'], 'people'],
+  ['menu', 'Menu', ['dmenu', 'menu'], 'food'],
+  ['before', 'Quantities', ['dbefore', 'before'], 'scale'],
+  ['after', 'Leftovers', ['dafter', 'after'], 'box'],
+  ['skip', 'Steps marked as not done', ['dskip', 'skip'], 'food'],
+  ['stock', 'Stock count', ['endweek', 'startweek', 'received'], 'week']
+];
+function rmOn(id) { var v = (S.f.rt || {})[id]; return v == null ? id !== 'stock' : !!v; }
+function rmFound(db, c, d) {
+  return RMG.map(function (g) { return { id: g[0], name: g[1], types: g[2], icon: g[3], es: db.entries.filter(function (e) { return !e.del && e.centre === c && e.date === d && g[2].indexOf(e.type) >= 0; }) }; }).filter(function (g) { return g.es.length; });
+}
+function rmLine(g) {
+  var by = []; g.es.forEach(function (e) { if (e.byName && by.indexOf(e.byName) < 0) by.push(e.byName); });
+  var w = g.id === 'people' ? g.es.map(function (e) { return e.meal + ': ' + (e.data.skip ? 'not counted' : plural(eatPlates(e), 'plate', 'plates')); }).join(', ') : '';
+  return esc(w + (w && by.length ? ' · ' : '') + (by.length ? 'Saved by ' + listWords(by) : ''));
+}
+function rmPicked(db) { return rmFound(db, S.f.rc, S.f.rd).filter(function (g) { return rmOn(g.id); }); }
+function removeDayCard(db) {
+  var f = S.f, cs = canteens(db), t = todayStr();
+  if (!f.rc || !eatCentre(db, f.rc)) f.rc = cs.length ? cs[0].id : ''; if (!f.rd) f.rd = t; f.rt = f.rt || {};
+  var found = rmFound(db, f.rc, f.rd), picked = found.filter(function (g) { return rmOn(g.id); });
+  return '<div class="cyp-note"><p>For a day counted to try the app, or counted on the wrong day. The delivery notes are not touched.</p></div>' +
+    card(selectField('Centre', 'rc', cs.map(function (c) { return [c.id, shown(c.name)]; }), f.rc, 'rmCentre') +
+      field('Day', 'rd', '<input id="rd" class="cyp-input" type="date" max="' + t + '" value="' + esc(f.rd) + '" data-a-change="rmDay">')) +
+    h2('Saved on ' + dayName(f.rd) + ', ' + esc(centreName(f.rc))) +
+    (found.length ? list(found.map(function (g) { return row(g.icon, g.name, rmLine(g)); }).join('')) +
+      choice('What to remove', found.map(function (g) { return { l: g.name, on: rmOn(g.id), at: 'data-a="rmPick" data-g="' + g.id + '"' }; }), { many: true, name: 'rmg', cols: 2 }) +
+      btn('Remove', 'data-a="rmAsk"' + (picked.length ? '' : ' disabled'), 'danger block')
+      : '<p class="muted">Nothing is saved for this centre on this day.</p>');
+}
+function rmModal() {
+  var db = view(), picked = rmPicked(db);
+  return sheet('rmt', 'Remove these counts?', '<p class="body-strong">' + esc(centreName(S.f.rc)) + ', ' + dayName(S.f.rd) + '</p>' +
+    list(picked.map(function (g) { return row(g.icon, g.name, rmLine(g)); }).join('')) +
+    '<div class="cyp-note cyp-note--warn"><p>They leave the app, the overview and the Excel on every phone. This cannot be undone in the app.</p></div>',
+    btn('Yes, remove', 'data-a="rmDo"', 'danger block'));
+}
 /* settings: a menu of sections; each section opens on its own (comment of 20/11: too much on one page) */
 var SETSECS = [
   ['users', 'Users', 'Names of the people who count, and their role'],
@@ -1142,6 +1182,7 @@ var SETSECS = [
   ['pins', 'PINs and link', 'The three PINs, the link for the people who count'],
   ['reader', 'Photo reader', 'Gemini key for the photos of the delivery notes'],
   ['backup', 'Backup', 'A copy of the database every night at 2:00'],
+  ['remove', 'Remove the counts of a day', 'A day counted to try the app, or counted on the wrong day'],
   ['comments', 'Comments on the app', ''],
   ['install', 'The app on this computer', 'Put CYP EAT on this phone or computer']
 ];
@@ -1196,6 +1237,7 @@ SCREENS.settings = function () {
         '<p class="body-strong">' + (b.last ? 'Last backup: ' + esc(localTime(b.last)) : 'No backup yet.') + '</p>' +
         small('The photos of the delivery notes are already files on Drive. A copy is also saved at the first change of each day.'));
     },
+    remove: function () { return removeDayCard(db); },
     comments: function () { return commentsCard(db); },
     install: function () { return installCard(); }
   };
@@ -1281,7 +1323,19 @@ function signOut(msg) { S.sess = null; KV.del('sess'); S.scr = 'signin'; S.pin =
 
 /* ===================== actions ===================== */
 var A = {};
-A.setSec = function (el) { S.setSec = el.getAttribute('data-s'); S.notice = ''; render(); };
+A.setSec = function (el) { S.setSec = el.getAttribute('data-s'); S.notice = ''; S.good = ''; render(); };
+A.rmCentre = function (el) { S.f.rc = el.value; S.f.rt = {}; S.good = ''; S.keepScroll = true; render(); };
+A.rmDay = function (el) { if (eatIsDate(el.value) && el.value <= todayStr()) { S.f.rd = el.value; S.f.rt = {}; } S.good = ''; S.keepScroll = true; render(); };
+A.rmPick = function (el) { var g = el.getAttribute('data-g'); S.f.rt = S.f.rt || {}; S.f.rt[g] = !rmOn(g); S.keepScroll = true; render(); };
+A.rmAsk = function () { if (rmPicked(view()).length) openModal(rmModal); };
+A.rmDo = function () {
+  var picked = rmPicked(view()), types = []; if (!picked.length) return closeModal();
+  picked.forEach(function (g) { types = types.concat(g.types); });
+  queue({ kind: 'day_clean', centre: S.f.rc, date: S.f.rd, types: types });
+  closeModal(); S.f.rt = {}; S.notice = '';
+  S.good = 'Removed from ' + centreName(S.f.rc) + ', ' + dayName(S.f.rd) + ': ' + listWords(picked.map(function (g) { return g.name.toLowerCase(); })) + '.';
+  S.keepScroll = true; render();
+};
 /* deliveries */
 A.photo = function (el) {
   var f = el.files && el.files[0]; if (!f) return;
