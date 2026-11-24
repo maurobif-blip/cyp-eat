@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'alpha 0.22';
+var EAT_VERSION = 'beta 1.0';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 /* the meals a centre can have now (20/11: breakfast is left out for now; old breakfast counts are still read) */
 var EAT_MEALS_ON = ['Lunch', 'Dinner'];
@@ -445,6 +445,26 @@ function eatApply(db, mode, op, nowIso, info) {
     info.audit.push({ time: nowIso, who: 'Overview', action: 'Start clean', detail: gone + ' test entries removed, ' + kept + ' delivery notes kept' });
     return { ok: true, removed: gone, kept: kept };
   }
+  /* the counts of one day at one centre are taken out: a day counted to try the app, or counted on the wrong day.
+     The overview chooses what goes (plates, menu, quantities, leftovers, marks, stock count); the delivery notes are never touched.
+     Like start_clean, nothing is erased from the file: the entries are marked as removed and the phones drop them at their next sync. */
+  if (k === 'day_clean') {
+    var dc = eatCentre(db, op.centre), dts = op.types || [], dgone = [];
+    if (!dc || dc.place || !eatIsDate(op.date) || !dts.length) return { ok: false, error: 'fields' };
+    for (i = 0; i < dts.length; i++) if (dts[i] === 'note' || EAT_TYPES.indexOf(dts[i]) < 0) return { ok: false, error: 'fields' };
+    for (i = 0; i < db.entries.length; i++) {
+      var de = db.entries[i];
+      if (de.del || de.type === 'note' || de.centre !== op.centre || de.date !== op.date || dts.indexOf(de.type) < 0) continue;
+      de.del = true; bump(de); dgone.push(de);
+    }
+    if (dgone.length) {
+      info.gone = (info.gone || []).concat(dgone);
+      var dby = {}; for (i = 0; i < dgone.length; i++) dby[dgone[i].type] = (dby[dgone[i].type] || 0) + 1;
+      var dwords = []; for (var dk in dby) dwords.push(dk + ' ' + dby[dk]);
+      info.audit.push({ time: nowIso, who: 'Overview', action: 'Day removed', detail: dc.name + ' ' + op.date + ': ' + dwords.join(', ') });
+    }
+    return { ok: true, removed: dgone.length };
+  }
   if (k === 'comment_done') {
     var cd = eatFind(db.comments, op.cid); if (!cd) return { ok: false, error: 'id' };
     cd.done = !!op.done; bump(cd); info.comments.push(cd); return { ok: true };
@@ -725,6 +745,17 @@ function cleanSheets_() {
     var rows = sh.getLastRow() - 1; if (rows > 0) sh.getRange(2, 1, rows, Math.max(1, sh.getLastColumn())).clearContent();
   });
 }
+/* after "remove the counts of a day": the rows of those entries leave their sheet (found by the key in the last column) */
+function unmirror_(list) {
+  for (var i = 0; i < list.length; i++) {
+    var e = list[i], st = e.type === 'received' || e.type === 'endweek' || e.type === 'startweek';
+    var name = e.type === 'people' ? 'people' : (st ? 'stock' : 'food'), head = e.type === 'people' ? PEOPLE_HEAD : (st ? STOCK_HEAD : FOOD_HEAD);
+    var sh = book_().getSheetByName(name); if (!sh || e.type === 'note') continue;
+    var last = sh.getLastRow(); if (last < 2) continue;
+    var hit = sh.getRange(2, head.length, last - 1, 1).createTextFinder(e.key).matchEntireCell(true).findNext();
+    if (hit) sh.deleteRow(hit.getRow());
+  }
+}
 function mirror_(db, list) {
   if (!list.length) return;
   for (var i = 0; i < list.length; i++) {
@@ -765,6 +796,8 @@ function store_() {
       var day = new Date().toISOString().slice(0, 10);
       if (P.getProperty('backupDay') !== day) { f.createFile('cyp-eat-backup-' + day + '.json', text, 'application/json'); P.setProperty('backupDay', day); }
       if (info && info.clean) cleanSheets_();
+      /* the database is already saved: a sheet that cannot be changed must not stop the answer to the phone */
+      if (info && info.gone && info.gone.length) { try { unmirror_(info.gone); } catch (err) {} }
       if (info) { mirror_(db, info.entries || []); audit_(info.audit || []); comments_(info.comments || []); }
     }
   };
