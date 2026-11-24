@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'beta 1.4';
+var EAT_VERSION = 'beta 1.5';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 /* the meals a centre can have now (20/11: breakfast is left out for now; old breakfast counts are still read) */
 var EAT_MEALS_ON = ['Lunch', 'Dinner'];
@@ -160,6 +160,9 @@ function eatPortionSize(db, centre, date, id) {
   var use = it.unit === it.use ? q : (it.per > 0 ? q * it.per : null);
   return t && use != null ? Math.round(use / t * 1000) / 1000 : null;
 }
+/* Minsundu (Giovanni and Mauro, 24/11): the sapa is cooked with the leftovers of lunch and nobody counts it; the leftovers are written after lunch.
+   A centre setting; at Minsundu it is on until the overview turns it off */
+function eatDinLeft(db, centre) { var c = eatCentre(db, centre); if (!c || c.meals.indexOf('Dinner') < 0) return false; return typeof c.dinLeft === 'boolean' ? c.dinLeft : c.id === 'MIN'; }
 function eatPlanOthers(day) { var t = 0; if (day && day.o) for (var k in day.o) t += day.o[k] || 0; return t; }
 /* what the photo reader read on a plan, made into the data of a plan entry: kitchen, Monday of the week, days */
 function eatPlanRead(db, r) {
@@ -276,9 +279,11 @@ function eatDayUse(db, centre, date) {
     /* a meal nobody counts takes the number of the plan of the week, when there is one */
     if (fx != null && pday && pday.p && pday.p[meals[i]] != null) fx = pday.p[meals[i]];
     if (fx != null) out.plates = (out.plates || 0) + fx; else if (p && !p.data.skip) out.plates = (out.plates || 0) + eatPlates(p); else { out.peopleMissing++; if (p) out.peopleSkipped = (out.peopleSkipped || 0) + 1; }
+    /* the dinner cooked with the leftovers of lunch (Minsundu, 24/11): its plates are served, but its food is in the leftovers, not in the food used */
+    if (meals[i] === 'Dinner' && fx != null && eatDinLeft(db, centre)) out.onLeft = fx;
   }
   out.cooked = eatPlanOthers(pday);
-  out.base = out.plates == null ? null : out.plates + out.cooked;
+  out.base = out.plates == null ? null : out.plates + out.cooked - (out.onLeft || 0);
   var sk = eatGet(db, 'dskip', centre, date, '');
   if (sk && sk.data.on) { out.skipped = true; return out; }
   var b = eatGet(db, 'dbefore', centre, date, ''), a = eatGet(db, 'dafter', centre, date, ''), left = eatLeft(db, centre);
@@ -600,6 +605,12 @@ function eatApply(db, mode, op, nowIso, info) {
     info.audit.push({ time: nowIso, who: 'Overview', action: 'Fixed plates', detail: cf.name + ', ' + op.meal + ': ' + (fn > 0 ? fn + ' plates every day, not counted' : 'counted') });
     return { ok: true };
   }
+  if (k === 'centre_dinleft') {
+    var cdl = eatCentre(db, op.cid); if (!cdl) return { ok: false, error: 'id' };
+    cdl.dinLeft = !!op.on; bump(cdl);
+    info.audit.push({ time: nowIso, who: 'Overview', action: 'Dinner from the leftovers', detail: cdl.name + ': ' + (cdl.dinLeft ? 'yes' : 'no') });
+    return { ok: true };
+  }
   if (k === 'centre_left') {
     var cl = eatCentre(db, op.cid); if (!cl) return { ok: false, error: 'id' };
     cl.left = !!op.on; bump(cl);
@@ -764,4 +775,4 @@ function eatHandle(req, store) {
   for (i = 0; i < db.comments.length; i++) if (db.comments[i].rev > since && (mode === 'admin')) out.comments.push(db.comments[i]);
   return out;
 }
-if (typeof module !== 'undefined') module.exports = { eatPortionSize: eatPortionSize, eatPlanRead: eatPlanRead, eatPlanDay: eatPlanDay, eatPlanCheck: eatPlanCheck, eatPlanOthers: eatPlanOthers, eatNewDb: eatNewDb, eatApply: eatApply, eatHandle: eatHandle, eatMealUse: eatMealUse, eatNote: eatNote, eatNotes: eatNotes, eatNoteGaps: eatNoteGaps, eatNoteNo: eatNoteNo, eatUpgrade: eatUpgrade, eatConv: eatConv, eatStock: eatStock, eatWeekCheck: eatWeekCheck, eatFixed: eatFixed, EAT_MEALS_ON: EAT_MEALS_ON, EAT_PACKS: EAT_PACKS, eatPlaceMatch: eatPlaceMatch, eatNoteQ: eatNoteQ, eatNoteHas: eatNoteHas, eatPlates: eatPlates, eatCanteens: eatCanteens, eatPlaces: eatPlaces, eatDayUse: eatDayUse, eatDayMenu: eatDayMenu, eatDayRows: eatDayRows, eatUsesOfDay: eatUsesOfDay, eatNum: eatNum, eatLeft: eatLeft, eatWeekCount: eatWeekCount, eatNoteUntil: eatNoteUntil, eatPerPlate: eatPerPlate, eatRows: eatRows, eatMenuOf: eatMenuOf, eatGet: eatGet, eatKey: eatKey, eatMonday: eatMonday, eatAddDays: eatAddDays, eatToday: eatToday, eatWeekday: eatWeekday, EAT_VERSION: EAT_VERSION };
+if (typeof module !== 'undefined') module.exports = { eatDinLeft: eatDinLeft, eatPortionSize: eatPortionSize, eatPlanRead: eatPlanRead, eatPlanDay: eatPlanDay, eatPlanCheck: eatPlanCheck, eatPlanOthers: eatPlanOthers, eatNewDb: eatNewDb, eatApply: eatApply, eatHandle: eatHandle, eatMealUse: eatMealUse, eatNote: eatNote, eatNotes: eatNotes, eatNoteGaps: eatNoteGaps, eatNoteNo: eatNoteNo, eatUpgrade: eatUpgrade, eatConv: eatConv, eatStock: eatStock, eatWeekCheck: eatWeekCheck, eatFixed: eatFixed, EAT_MEALS_ON: EAT_MEALS_ON, EAT_PACKS: EAT_PACKS, eatPlaceMatch: eatPlaceMatch, eatNoteQ: eatNoteQ, eatNoteHas: eatNoteHas, eatPlates: eatPlates, eatCanteens: eatCanteens, eatPlaces: eatPlaces, eatDayUse: eatDayUse, eatDayMenu: eatDayMenu, eatDayRows: eatDayRows, eatUsesOfDay: eatUsesOfDay, eatNum: eatNum, eatLeft: eatLeft, eatWeekCount: eatWeekCount, eatNoteUntil: eatNoteUntil, eatPerPlate: eatPerPlate, eatRows: eatRows, eatMenuOf: eatMenuOf, eatGet: eatGet, eatKey: eatKey, eatMonday: eatMonday, eatAddDays: eatAddDays, eatToday: eatToday, eatWeekday: eatWeekday, EAT_VERSION: EAT_VERSION };

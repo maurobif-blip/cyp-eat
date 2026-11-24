@@ -632,7 +632,7 @@ SCREENS.people = function () {
   var all = countMeals().map(function (m) {
     var p = eatGet(db, 'people', c, S.date, m), ms = m === S.meal ? st : savedState(p), pl = m === S.meal ? eatPlates({ data: pData() }) : (p ? eatPlates(p) : 0);
     return row('', m, ms === 'none' || ms === 'skip' ? '' : plural(pl, 'plate', 'plates'), tag(STPILL[ms], STLAB[ms]));
-  }).join('') + fixedMeals().map(function (m) { var pf = planOrFixed(db, c, S.date, m); return linkRow('', m, pf[0] + (pf[1] ? ' plates in the plan of the week' : ' plates every day') + ' · not counted · change it in the plan', 'data-a="planGo"'); }).join('') +
+  }).join('') + fixedMeals().map(function (m) { var pf = planOrFixed(db, c, S.date, m); return linkRow('', m, pf[0] + (pf[1] ? ' plates in the plan of the week' : ' plates every day') + ' · not counted' + (m === 'Dinner' && eatDinLeft(db, c) ? ' · eats the leftovers of lunch' : '') + ' · change it in the plan', 'data-a="planGo"'); }).join('') +
     othersOf(db, c, S.date).map(function (x) { return linkRow('', 'For ' + esc(x.name), x.n + ' plates in the plan of the week · cooked here, not counted', 'data-a="planGo"'); }).join('') +
     (fixedMeals().length ? linkRow('clip', 'Other places cooked for here', 'Chinika, Ukubalula: write them in the plan of the week', 'data-a="planGo"') : '');
   var grp = gs.length ? choice('', [''].concat(gs).map(function (k) { return { l: esc(k || centreName(c)) + ' <b class="num">' + (k ? (S.f.g[k] || 0) : S.f.n) + '</b>', on: (S.f.grp || '') === k, at: 'data-a="grp" data-g="' + esc(k) + '"' }; }), { aria: 'Who eats', name: 'grp' }) : '';
@@ -791,7 +791,7 @@ SCREENS.before = function () {
 SCREENS.after = function () {
   var db = view(), b = eatGet(db, 'dbefore', S.sess.centre, S.date, '');
   if (!b) return backLink() + title('Leftovers') + dayTitle() + skipNote('after') + '<p>First save the quantities for today.</p>' + btn('Quantities for today', 'data-a="go" data-to="before"', 'primary block') + skipBtn('after');
-  return backLink() + title('Leftovers') + dayTitle() + skipNote('after') + '<p>What is left at the end of the day, after the last meal, in portions: the app turns them into kg. A chicken is cut in 10 portions.</p>' +
+  return backLink() + title('Leftovers') + dayTitle() + skipNote('after') + (eatDinLeft(db, S.sess.centre) ? '<p>What is left after lunch, in portions: it is the food of the dinner (sapa). The app turns the portions into kg. A chicken is cut in 10 portions.</p>' : '') + (eatDinLeft(db, S.sess.centre) ? '' : '<p>What is left at the end of the day, after the last meal, in portions: the app turns them into kg. A chicken is cut in 10 portions.</p>') +
     card(foodRowsHtml(S.f, true)) +
     '<div class="cyp-card" id="bal">' + balanceHtml() + '</div>' +
     btn('Save', 'data-a="saveAfter"', 'primary block') + skipBtn('after');
@@ -813,7 +813,7 @@ function balanceHtml() {
     rows.push([esc(it.name), used == null && usedU == null ? 'Not counted' : (usedU != null && it.unit !== it.use ? fmt(usedU) + ' ' + esc(it.unit) + (used != null ? ' = ' : '') : '') + (used != null ? fmt(used) + ' ' + esc(it.use) : ''), pt]);
   });
   return h3('Balance of the day') + table([['Item'], ['Used'], ['A plate', 1]], rows) +
-    small(base ? base + ' plates today' + (u.cooked ? ' (' + u.plates + ' here, ' + u.cooked + ' cooked for ' + othersWords(db, S.sess.centre, S.date) + ')' : '') + (u.peopleMissing ? ' (' + plural(u.peopleMissing, 'meal', 'meals') + ' not counted)' : '') : 'Count the people of today to see the amount a plate.');
+    small(base ? base + ' plates for this food' + (u.cooked || u.onLeft ? ' (' + (u.plates - (u.onLeft || 0)) + ' here' + (u.cooked ? ', ' + u.cooked + ' cooked for ' + othersWords(db, S.sess.centre, S.date) : '') + ')' : '') + (u.onLeft ? '; the dinner (' + u.onLeft + ') eats the leftovers' : '') + (u.peopleMissing ? ' (' + plural(u.peopleMissing, 'meal', 'meals') + ' not counted)' : '') : 'Count the people of today to see the amount a plate.');
 }
 /* ---------- delivery notes: one person copies the Self Reliance notes once a week ---------- */
 function noteItems(db, q) { var p = []; db.items.forEach(function (it) { if (q[it.id] != null) p.push(it.name + ' ' + fmt(q[it.id]) + ' ' + it.unit); }); return p.join(' · '); }
@@ -1407,6 +1407,8 @@ SCREENS.settings = function () {
           }).join('') +
           small('A number: the meal always has that many plates and nobody counts it. Empty: counted by tapping.') +
           choice('', [{ l: 'Leftovers at the end of the day: ' + (c.left ? 'counted' : 'not counted'), on: !!c.left, at: 'data-a="cleft" data-id="' + c.id + '"' }], { many: true, aria: 'Leftovers' }) +
+          (c.meals.indexOf('Dinner') >= 0 ? choice('', [{ l: 'Dinner is cooked with the leftovers of lunch', on: eatDinLeft(db, c.id), at: 'data-a="cdinleft" data-id="' + c.id + '"' }], { many: true, aria: 'Dinner at ' + shown(c.name) }) +
+            small('Then the leftovers are written after lunch, and the dinner plates are not in the food a plate.') : '') +
           ((c.groups || []).length ? small('Also eat here (counted apart):') + list(c.groups.map(function (g) { return row('', esc(g), '', '<button class="cyp-btn cyp-btn--danger" data-a="grpOff" data-id="' + c.id + '" data-g="' + esc(g) + '" aria-label="Remove ' + esc(g) + '">Remove</button>'); }).join('')) : small('Also eat here (counted apart): nobody')) +
           '<div class="cyp-field"><label for="grp_' + c.id + '">A group that eats at ' + esc(shown(c.name)) + '</label><div class="inl"><input id="grp_' + c.id + '" class="cyp-input" type="text" data-f="grp_' + c.id + '" value="' + esc(S.f['grp_' + c.id] || '') + '">' + btn('Add', 'data-a="grpAdd" data-id="' + c.id + '"') + '</div></div>');
       }).join('');
@@ -1913,6 +1915,7 @@ A.fixSave = function (el) {
   if (!isFinite(n) || n < 0 || n > 5000) { S.notice = 'Write a number of plates, or leave it empty.'; return render(); }
   queue({ kind: 'centre_fixed', cid: c.id, meal: m, n: n || '' }); delete S.f[k]; S.notice = ''; S.good = shown(c.name) + ', ' + m + ': ' + (n ? 'always ' + n + ' plates, not counted.' : 'counted by tapping.'); S.keepScroll = true; render();
 };
+A.cdinleft = function (el) { var c = eatCentre(view(), el.getAttribute('data-id')); queue({ kind: 'centre_dinleft', cid: c.id, on: !eatDinLeft(view(), c.id) }); S.keepScroll = true; render(); };
 A.cleft = function (el) { var c = eatCentre(view(), el.getAttribute('data-id')); queue({ kind: 'centre_left', cid: c.id, on: !c.left }); S.keepScroll = true; render(); };
 A.cmeal = function (el) {
   var c = eatCentre(view(), el.getAttribute('data-id')), m = el.getAttribute('data-m'), ms = c.meals.slice(), i = ms.indexOf(m);
