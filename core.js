@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'beta 1.2';
+var EAT_VERSION = 'beta 1.3';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 /* the meals a centre can have now (20/11: breakfast is left out for now; old breakfast counts are still read) */
 var EAT_MEALS_ON = ['Lunch', 'Dinner'];
@@ -9,7 +9,7 @@ var EAT_ROLES = ['Volunteer', 'Canteen', 'Educator'];
 var EAT_MODES = ['entry', 'delivery', 'admin'];
 /* how the store can count a food: in its own unit (kg, chickens, eggs…) or in a container, with how much one container holds */
 var EAT_PACKS = ['bags', 'trays', 'cans', 'packs', 'pieces'];
-var EAT_TYPES = ['people', 'menu', 'before', 'after', 'skip', 'received', 'endweek', 'note', 'startweek', 'dmenu', 'dbefore', 'dafter', 'dskip'];
+var EAT_TYPES = ['people', 'menu', 'before', 'after', 'skip', 'received', 'endweek', 'note', 'startweek', 'dmenu', 'dbefore', 'dafter', 'dskip', 'plan'];
 /* the food is counted for the whole day: dmenu (all meals at once), dbefore (quantities for today), dafter (left at the end of the day), dskip.
    The old types menu, before, after, skip (one meal) are still read. */
 /* protein of the day on the weekly canteen sheet: Sun..Sat */
@@ -35,7 +35,9 @@ function eatDefaultCentres() {
     { id: 'MIN', name: 'Minsundu', meals: ['Lunch', 'Dinner'], left: true, fixed: { Dinner: 60 } },
     { id: 'LUI', name: 'Luigi', meals: ['Lunch'] },
     { id: 'NKW', name: 'Nkwazi', meals: ['Lunch'] },
-    { id: 'MCU', name: 'Mary Christine / Ukubalula', meals: ['Lunch'] }
+    { id: 'MCU', name: 'Mary Christine', meals: ['Lunch'] },
+    /* Ukubalula: its meals are cooked at Minsundu (24/11/2026); a place without a canteen of its own */
+    { id: 'UKU', name: 'Ukubalula', meals: [], left: false, place: true }
   ];
 }
 /* a database made before a new default item: add the item */
@@ -44,6 +46,12 @@ function eatUpgrade(db) {
   for (var i = 0; i < d.length; i++) if (!eatFind(db.items, d[i].id)) { d[i].rev = 0; db.items.push(d[i]); changed = true; }
   /* leftovers at the end of the day: counted only where food is cooked in advance (Minsundu, for dinner) */
   for (i = 0; i < db.centres.length; i++) if (typeof db.centres[i].left !== 'boolean') { db.centres[i].left = db.centres[i].id === 'MIN'; changed = true; }
+  /* beta 1.3 (Mauro, 24/11): Mary Christine and Ukubalula are two places. The canteen keeps its id, its counts and its delivery notes, with the name
+     Mary Christine; Ukubalula becomes a place without a canteen (its meals are cooked at Minsundu). Nothing else in the data changes. */
+  var mcu = eatFind(db.centres, 'MCU');
+  if (mcu && mcu.name === 'Mary Christine / Ukubalula') { mcu.name = 'Mary Christine'; db.rev++; mcu.rev = db.rev; changed = true; }
+  var hasU = false; for (i = 0; i < db.centres.length; i++) if (!db.centres[i].off && db.centres[i].name.toLowerCase() === 'ukubalula') hasU = true;
+  if (mcu && !hasU && !eatFind(db.centres, 'UKU')) { db.rev++; db.centres.push({ id: 'UKU', name: 'Ukubalula', meals: [], left: false, place: true, rev: db.rev }); changed = true; }
   return changed;
 }
 /* a quantity in the unit the person chose ('unit' = store unit, else use unit) -> {use, unit}; null when the size is not set */
@@ -134,6 +142,46 @@ function eatPlaceMatch(db, text) {
 /* the plates of one meal: the centre's own, and the groups that eat food cooked there (Luigi cooks for Holy Family) */
 /* the fixed number of plates of a meal at a centre, or null when the meal is counted */
 function eatFixed(db, centre, meal) { var c = eatCentre(db, centre), n = c && c.fixed ? c.fixed[meal] : null; return c && c.meals.indexOf(meal) >= 0 && n > 0 ? n : null; }
+/* the plan of the week of a kitchen (beta 1.3): the paper the kitchen writes every week, with the people planned for each meal
+   and for the other places it cooks for (at Minsundu: sapa, Chinika, Ukubalula), and the food for each day. One entry for a week:
+   type plan, date the Monday. days: { '0' (Monday) .. '6' (Sunday): { p: { Lunch: 120, Dinner: 40 }, o: { Ukubalula: 10 }, q: { egg: 7 }, food: 'Eggs' } } */
+function eatPlan(db, centre, date) { return eatGet(db, 'plan', centre, eatMonday(date), ''); }
+function eatPlanDay(db, centre, date) { var p = eatPlan(db, centre, date), w = eatWeekday(date); if (!p) return null; var d = (p.data.days || {})[String(w === 0 ? 6 : w - 1)]; return d || null; }
+/* the plates of the day cooked here for other places, from the plan; nobody counts them here */
+function eatPlanOthers(day) { var t = 0; if (day && day.o) for (var k in day.o) t += day.o[k] || 0; return t; }
+/* what the photo reader read on a plan, made into the data of a plan entry: kitchen, Monday of the week, days */
+function eatPlanRead(db, r) {
+  r = r || {}; var WDN = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'], days = {};
+  function num(x) { var v = eatNum(x); return v == null || v < 0 ? null : v; }
+  (r.days || []).forEach(function (x) {
+    var w = WDN.indexOf(String(x.day || '').toLowerCase().trim()); if (w < 0 && x.day) w = WDN.map(function (d) { return d.slice(0, 3); }).indexOf(String(x.day).toLowerCase().trim().slice(0, 3)); if (w < 0) return;
+    var p = {}, o = {}, q = {}; if (num(x.lunch) != null) p.Lunch = Math.round(num(x.lunch)); if (num(x.dinner) != null) p.Dinner = Math.round(num(x.dinner));
+    (x.other_places || []).forEach(function (y) { var nm = eatText(y.place, 40), v = num(y.people); if (nm && v != null) o[nm] = Math.round(v); });
+    (x.items || []).forEach(function (y) { var it = eatItem(db, String(y.item || '')), v = num(y.quantity); if (it && v != null) q[it.id] = (q[it.id] || 0) + v; });
+    days[String(w)] = { p: p, o: o, q: q, food: eatText(x.food, 60) };
+  });
+  var c = eatPlaceMatch(db, r.kitchen), cc = c ? eatCentre(db, c) : null;
+  return { clear: r.readable !== false && Object.keys(days).length > 0, centre: cc && !cc.place ? c : '', placeText: eatText(r.kitchen, 60), week: eatIsDate(r.week_start) ? eatMonday(r.week_start) : '', days: days, remark: eatText(r.remark, 200) };
+}
+/* the plan against what happened on one day: people planned and counted for each meal; food planned and taken out, in the unit of the item */
+function eatPlanCheck(db, centre, date) {
+  var day = eatPlanDay(db, centre, date), out = { day: day, people: [], food: [] }; if (!day) return out;
+  var c = eatCentre(db, centre), meals = c ? c.meals : [];
+  for (var i = 0; i < meals.length; i++) {
+    var m = meals[i], pl = day.p && day.p[m] != null ? day.p[m] : null, fx = eatFixed(db, centre, m), pe = fx == null ? eatGet(db, 'people', centre, date, m) : null;
+    var cnt = fx != null ? null : (pe && !pe.data.skip ? eatPlates(pe) : null);
+    if (pl != null || cnt != null) out.people.push({ meal: m, plan: pl, counted: cnt, fixed: fx != null });
+  }
+  var b = eatGet(db, 'dbefore', centre, date, ''), bq = b ? b.data.q || {} : {}, bnc = b ? b.data.nc || {} : {}, bu = b ? b.data.u || {} : {}, seen = {};
+  function one(id) {
+    if (seen[id] || id === 'pcs') return; seen[id] = 1; var it = eatItem(db, id); if (!it) return;
+    var pq = day.q && day.q[id] != null ? day.q[id] : null, tk = b && bq[id] != null && !bnc[id] ? eatConv(it, bq[id], bu[id]).unit : null;
+    out.food.push({ id: id, plan: pq, out: tk, before: !!b, diff: pq != null && tk != null ? Math.round((tk - pq) * 1000) / 1000 : null });
+  }
+  for (var id in (day.q || {})) one(id);
+  for (id in bq) one(id);
+  return out;
+}
 function eatPlates(p) { var t = p.data.n || 0, g = p.data.g || {}; for (var k in g) t += g[k] || 0; return t; }
 function eatCanteens(db) { var o = []; for (var i = 0; i < db.centres.length; i++) if (!db.centres[i].place && !db.centres[i].off) o.push(db.centres[i]); return o; }
 function eatPlaces(db) { var o = []; for (var i = 0; i < db.centres.length; i++) if (!db.centres[i].off) o.push(db.centres[i]); return o; }
@@ -209,12 +257,15 @@ function eatDayRows(db, centre, date) {
 /* what one day used. Where the leftovers are not counted, everything taken out is used. */
 function eatDayUse(db, centre, date) {
   var out = { day: true, skipped: false, hasBefore: false, hasAfter: false, closed: false, used: {}, usedU: {}, pieces: null, plates: null, base: null, peopleMissing: 0 };
-  var c = eatCentre(db, centre), meals = c ? c.meals : [];
+  var c = eatCentre(db, centre), meals = c ? c.meals : [], pday = eatPlanDay(db, centre, date);
   for (var i = 0; i < meals.length; i++) {
     var fx = eatFixed(db, centre, meals[i]), p = fx == null ? eatGet(db, 'people', centre, date, meals[i]) : null;
+    /* a meal nobody counts takes the number of the plan of the week, when there is one */
+    if (fx != null && pday && pday.p && pday.p[meals[i]] != null) fx = pday.p[meals[i]];
     if (fx != null) out.plates = (out.plates || 0) + fx; else if (p && !p.data.skip) out.plates = (out.plates || 0) + eatPlates(p); else { out.peopleMissing++; if (p) out.peopleSkipped = (out.peopleSkipped || 0) + 1; }
   }
-  out.base = out.plates;
+  out.cooked = eatPlanOthers(pday);
+  out.base = out.plates == null ? null : out.plates + out.cooked;
   var sk = eatGet(db, 'dskip', centre, date, '');
   if (sk && sk.data.on) { out.skipped = true; return out; }
   var b = eatGet(db, 'dbefore', centre, date, ''), a = eatGet(db, 'dafter', centre, date, ''), left = eatLeft(db, centre);
@@ -402,10 +453,11 @@ function eatApply(db, mode, op, nowIso, info) {
     var e = op.e || {};
     if (EAT_TYPES.indexOf(e.type) < 0 || !eatCentre(db, e.centre) || !eatIsDate(e.date)) return { ok: false, error: 'fields' };
     if (e.type !== 'note' && eatCentre(db, e.centre).place) return { ok: false, error: 'place' };
-    if (e.date > eatToday(nowIso)) return { ok: false, error: 'future' };
+    if (e.type === 'plan' && eatMonday(e.date) !== e.date) return { ok: false, error: 'fields' };
+    if (e.date > (e.type === 'plan' ? eatAddDays(eatToday(nowIso), 7) : eatToday(nowIso))) return { ok: false, error: 'future' };
     var meal = e.meal || '';
     if (['people', 'menu', 'before', 'after', 'skip'].indexOf(e.type) >= 0 && EAT_MEALS.indexOf(meal) < 0) return { ok: false, error: 'meal' };
-    if (['received', 'endweek', 'note', 'startweek', 'dmenu', 'dbefore', 'dafter', 'dskip'].indexOf(e.type) >= 0) meal = '';
+    if (['received', 'endweek', 'note', 'startweek', 'dmenu', 'dbefore', 'dafter', 'dskip', 'plan'].indexOf(e.type) >= 0) meal = '';
     var key = eatKey(e.type, e.centre, e.date, meal);
     /* a delivery note is one paper note: its number is the key, whatever the centre or the date */
     if (e.type === 'note') { var no = eatNoteNo((e.data || {}).no); if (!no) return { ok: false, error: 'note_no' }; key = 'note|' + no; }
@@ -451,7 +503,7 @@ function eatApply(db, mode, op, nowIso, info) {
   if (k === 'day_clean') {
     var dc = eatCentre(db, op.centre), dts = op.types || [], dgone = [];
     if (!dc || dc.place || !eatIsDate(op.date) || !dts.length) return { ok: false, error: 'fields' };
-    for (i = 0; i < dts.length; i++) if (dts[i] === 'note' || EAT_TYPES.indexOf(dts[i]) < 0) return { ok: false, error: 'fields' };
+    for (i = 0; i < dts.length; i++) if (dts[i] === 'note' || dts[i] === 'plan' || EAT_TYPES.indexOf(dts[i]) < 0) return { ok: false, error: 'fields' };
     for (i = 0; i < db.entries.length; i++) {
       var de = db.entries[i];
       if (de.del || de.type === 'note' || de.centre !== op.centre || de.date !== op.date || dts.indexOf(de.type) < 0) continue;
@@ -599,6 +651,19 @@ function eatClean(db, type, d) {
     return { meals: ms, cook: eatText(d.cook, 60) };
   }
   if (type === 'received') return { q: qs(d.q) };
+  if (type === 'plan') {
+    var pnum = function (x) { var v = Math.round(Number(x)); return x === '' || x == null || !isFinite(v) || v < 0 ? null : Math.min(5000, v); }, days = {};
+    for (var wd = 0; wd < 7; wd++) {
+      var sd = (d.days || {})[String(wd)]; if (!sd) continue;
+      var pp2 = {}, oo = {}, on2 = 0, any2 = false;
+      for (var mi2 = 0; mi2 < EAT_MEALS.length; mi2++) { var pv = pnum((sd.p || {})[EAT_MEALS[mi2]]); if (pv != null) { pp2[EAT_MEALS[mi2]] = pv; any2 = true; } }
+      for (var ok2 in (sd.o || {})) { var onm = eatText(ok2, 40), ov = pnum(sd.o[ok2]); if (onm && ov != null && on2 < 4) { oo[onm] = ov; on2++; any2 = true; } }
+      var pq3 = qs(sd.q), q3 = {}; for (var k3 in pq3) if (k3 !== 'pcs' && pq3[k3] != null && pq3[k3] >= 0) { q3[k3] = pq3[k3]; any2 = true; }
+      var fd = eatText(sd.food, 60); if (fd) any2 = true;
+      if (any2) days[String(wd)] = { p: pp2, o: oo, q: q3, food: fd };
+    }
+    return { days: days, photo: /^[A-Za-z0-9_\-]{10,80}$/.test(String(d.photo || '')) ? String(d.photo) : '', remark: eatText(d.remark, 200) };
+  }
   if (type === 'endweek' || type === 'startweek') return { q: qs(d.q), nc: ncs(d.nc) };
   if (type === 'note') { var nq = qs(d.q), q2 = {}; for (var k2 in nq) if (k2 !== 'pcs' && nq[k2] != null && nq[k2] > 0) q2[k2] = nq[k2]; var dy = Math.round(Number(d.days)); var parts = [], psrc = d.parts || [];
     for (var pi = 0; pi < psrc.length && parts.length < 4; pi++) {
@@ -641,10 +706,11 @@ function eatHandle(req, store) {
   if (a === 'login') { if (dirty) store.save(db, null); return { ok: true, now: now }; }
   /* the photo of a delivery note: saved on Drive and read by the photo reader; nothing is written in the database here */
   if (a === 'read') {
-    if (mode === 'entry') return { ok: false, error: 'rights' };
+    if (req.kind === 'plan' ? mode === 'delivery' : mode === 'entry') return { ok: false, error: 'rights' };
     if (!store.read || !(store.readerOn && store.readerOn())) return { ok: false, error: 'no_reader' };
     var img = String(req.image || '');
     if (!img || img.length > 6000000 || !/^[A-Za-z0-9+\/=]+$/.test(img)) return { ok: false, error: 'image' };
+    if (req.kind === 'plan') { if (!store.readPlan) return { ok: false, error: 'no_reader' }; try { return store.readPlan(img, db); } catch (err2) { return { ok: false, error: 'reader', detail: String(err2).slice(0, 200) }; } }
     try { return store.read(img, db); } catch (err) { return { ok: false, error: 'reader', detail: String(err).slice(0, 200) }; }
   }
   if (a === 'reader_key') {
@@ -672,4 +738,4 @@ function eatHandle(req, store) {
   for (i = 0; i < db.comments.length; i++) if (db.comments[i].rev > since && (mode === 'admin')) out.comments.push(db.comments[i]);
   return out;
 }
-if (typeof module !== 'undefined') module.exports = { eatNewDb: eatNewDb, eatApply: eatApply, eatHandle: eatHandle, eatMealUse: eatMealUse, eatNote: eatNote, eatNotes: eatNotes, eatNoteGaps: eatNoteGaps, eatNoteNo: eatNoteNo, eatUpgrade: eatUpgrade, eatConv: eatConv, eatStock: eatStock, eatWeekCheck: eatWeekCheck, eatFixed: eatFixed, EAT_MEALS_ON: EAT_MEALS_ON, EAT_PACKS: EAT_PACKS, eatPlaceMatch: eatPlaceMatch, eatNoteQ: eatNoteQ, eatNoteHas: eatNoteHas, eatPlates: eatPlates, eatCanteens: eatCanteens, eatPlaces: eatPlaces, eatDayUse: eatDayUse, eatDayMenu: eatDayMenu, eatDayRows: eatDayRows, eatUsesOfDay: eatUsesOfDay, eatNum: eatNum, eatLeft: eatLeft, eatWeekCount: eatWeekCount, eatNoteUntil: eatNoteUntil, eatPerPlate: eatPerPlate, eatRows: eatRows, eatMenuOf: eatMenuOf, eatGet: eatGet, eatKey: eatKey, eatMonday: eatMonday, eatAddDays: eatAddDays, eatToday: eatToday, eatWeekday: eatWeekday, EAT_VERSION: EAT_VERSION };
+if (typeof module !== 'undefined') module.exports = { eatPlanRead: eatPlanRead, eatPlanDay: eatPlanDay, eatPlanCheck: eatPlanCheck, eatPlanOthers: eatPlanOthers, eatNewDb: eatNewDb, eatApply: eatApply, eatHandle: eatHandle, eatMealUse: eatMealUse, eatNote: eatNote, eatNotes: eatNotes, eatNoteGaps: eatNoteGaps, eatNoteNo: eatNoteNo, eatUpgrade: eatUpgrade, eatConv: eatConv, eatStock: eatStock, eatWeekCheck: eatWeekCheck, eatFixed: eatFixed, EAT_MEALS_ON: EAT_MEALS_ON, EAT_PACKS: EAT_PACKS, eatPlaceMatch: eatPlaceMatch, eatNoteQ: eatNoteQ, eatNoteHas: eatNoteHas, eatPlates: eatPlates, eatCanteens: eatCanteens, eatPlaces: eatPlaces, eatDayUse: eatDayUse, eatDayMenu: eatDayMenu, eatDayRows: eatDayRows, eatUsesOfDay: eatUsesOfDay, eatNum: eatNum, eatLeft: eatLeft, eatWeekCount: eatWeekCount, eatNoteUntil: eatNoteUntil, eatPerPlate: eatPerPlate, eatRows: eatRows, eatMenuOf: eatMenuOf, eatGet: eatGet, eatKey: eatKey, eatMonday: eatMonday, eatAddDays: eatAddDays, eatToday: eatToday, eatWeekday: eatWeekday, EAT_VERSION: EAT_VERSION };
