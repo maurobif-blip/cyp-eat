@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'beta 1.4';
+var EAT_VERSION = 'beta 1.5';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 /* the meals a centre can have now (20/11: breakfast is left out for now; old breakfast counts are still read) */
 var EAT_MEALS_ON = ['Lunch', 'Dinner'];
@@ -160,6 +160,9 @@ function eatPortionSize(db, centre, date, id) {
   var use = it.unit === it.use ? q : (it.per > 0 ? q * it.per : null);
   return t && use != null ? Math.round(use / t * 1000) / 1000 : null;
 }
+/* Minsundu (Giovanni and Mauro, 24/11): the sapa is cooked with the leftovers of lunch and nobody counts it; the leftovers are written after lunch.
+   A centre setting; at Minsundu it is on until the overview turns it off */
+function eatDinLeft(db, centre) { var c = eatCentre(db, centre); if (!c || c.meals.indexOf('Dinner') < 0) return false; return typeof c.dinLeft === 'boolean' ? c.dinLeft : c.id === 'MIN'; }
 function eatPlanOthers(day) { var t = 0; if (day && day.o) for (var k in day.o) t += day.o[k] || 0; return t; }
 /* what the photo reader read on a plan, made into the data of a plan entry: kitchen, Monday of the week, days */
 function eatPlanRead(db, r) {
@@ -276,9 +279,11 @@ function eatDayUse(db, centre, date) {
     /* a meal nobody counts takes the number of the plan of the week, when there is one */
     if (fx != null && pday && pday.p && pday.p[meals[i]] != null) fx = pday.p[meals[i]];
     if (fx != null) out.plates = (out.plates || 0) + fx; else if (p && !p.data.skip) out.plates = (out.plates || 0) + eatPlates(p); else { out.peopleMissing++; if (p) out.peopleSkipped = (out.peopleSkipped || 0) + 1; }
+    /* the dinner cooked with the leftovers of lunch (Minsundu, 24/11): its plates are served, but its food is in the leftovers, not in the food used */
+    if (meals[i] === 'Dinner' && fx != null && eatDinLeft(db, centre)) out.onLeft = fx;
   }
   out.cooked = eatPlanOthers(pday);
-  out.base = out.plates == null ? null : out.plates + out.cooked;
+  out.base = out.plates == null ? null : out.plates + out.cooked - (out.onLeft || 0);
   var sk = eatGet(db, 'dskip', centre, date, '');
   if (sk && sk.data.on) { out.skipped = true; return out; }
   var b = eatGet(db, 'dbefore', centre, date, ''), a = eatGet(db, 'dafter', centre, date, ''), left = eatLeft(db, centre);
@@ -598,6 +603,12 @@ function eatApply(db, mode, op, nowIso, info) {
     if (fn > 0) fxd[op.meal] = fn;
     cf.fixed = fxd; bump(cf);
     info.audit.push({ time: nowIso, who: 'Overview', action: 'Fixed plates', detail: cf.name + ', ' + op.meal + ': ' + (fn > 0 ? fn + ' plates every day, not counted' : 'counted') });
+    return { ok: true };
+  }
+  if (k === 'centre_dinleft') {
+    var cdl = eatCentre(db, op.cid); if (!cdl) return { ok: false, error: 'id' };
+    cdl.dinLeft = !!op.on; bump(cdl);
+    info.audit.push({ time: nowIso, who: 'Overview', action: 'Dinner from the leftovers', detail: cdl.name + ': ' + (cdl.dinLeft ? 'yes' : 'no') });
     return { ok: true };
   }
   if (k === 'centre_left') {
@@ -941,8 +952,9 @@ function readNote_(img, db) {
   for (var i = 0; i < models.length && !best; i++) {
     var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent', { method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key }, payload: JSON.stringify(body), muteHttpExceptions: true });
     var code = res.getResponseCode(); last = code + ' ' + res.getContentText().slice(0, 160);
-    if (code === 404) continue;
-    if (code !== 200) return { ok: false, error: code === 400 || code === 403 ? 'reader_key' : (code === 429 ? 'reader_busy' : 'reader'), detail: last, photo: file.getId() };
+    /* 404: the model name is gone; 500/503: the model is busy ("high demand", 24/11): try the next model */
+    if (code === 404 || code === 500 || code === 503) continue;
+    if (code !== 200) return { ok: false, error: code === 400 || code === 403 ? 'reader_key' : (code === 429 || code === 503 ? 'reader_busy' : 'reader'), detail: last, photo: file.getId() };
     var out = JSON.parse(res.getContentText()), parts = (((out.candidates || [])[0] || {}).content || {}).parts || [], text = '';
     for (var j = 0; j < parts.length; j++) if (parts[j].text) text += parts[j].text;
     var r; try { r = JSON.parse(text.replace(/^\s*```(?:json)?/, '').replace(/```\s*$/, '')); } catch (e) { return { ok: false, error: 'reader', detail: 'not json', photo: file.getId() }; }
@@ -977,14 +989,15 @@ function readPlan_(img, db) {
   for (var i = 0; i < models.length; i++) {
     var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent', { method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': key }, payload: JSON.stringify(body), muteHttpExceptions: true });
     var code = res.getResponseCode(); last = code + ' ' + res.getContentText().slice(0, 160);
-    if (code === 404) continue;
-    if (code !== 200) return { ok: false, error: code === 400 || code === 403 ? 'reader_key' : (code === 429 ? 'reader_busy' : 'reader'), detail: last, photo: file.getId() };
+    /* 404: the model name is gone; 500/503: the model is busy ("high demand", 24/11): try the next model */
+    if (code === 404 || code === 500 || code === 503) continue;
+    if (code !== 200) return { ok: false, error: code === 400 || code === 403 ? 'reader_key' : (code === 429 || code === 503 ? 'reader_busy' : 'reader'), detail: last, photo: file.getId() };
     var out = JSON.parse(res.getContentText()), parts = (((out.candidates || [])[0] || {}).content || {}).parts || [], text = '';
     for (var j = 0; j < parts.length; j++) if (parts[j].text) text += parts[j].text;
     var r; try { r = JSON.parse(text.replace(/^\s*```(?:json)?/, '').replace(/```\s*$/, '')); } catch (e) { return { ok: false, error: 'reader', detail: 'not json', photo: file.getId() }; }
     return { ok: true, photo: file.getId(), plan: eatPlanRead(db, r), model: models[i] };
   }
-  return { ok: false, error: 'reader', detail: last, photo: file.getId() };
+  return { ok: false, error: /^5\d\d /.test(last) ? 'reader_busy' : 'reader', detail: last, photo: file.getId() };
 }
 function placeId_(text, db) { return eatPlaceMatch(db, text); }
 function readItems_(list, db) { var q = {}; (list || []).forEach(function (x) { var it = eatItem(db, String(x.item || '')); var n = eatNum(x.quantity); if (it && n) q[it.id] = (q[it.id] || 0) + n; }); return q; }
