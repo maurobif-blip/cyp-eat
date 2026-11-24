@@ -728,12 +728,21 @@ function qRow(key, label, unit, val, nc, step, tog) {
     '<div class="cyp-stepper"><button class="cyp-btn" data-a="step" data-k="' + key + '" data-s="-' + step + '" aria-label="Less"' + dis + '>' + ic('minus') + '</button>' +
     '<input id="q_' + key + '" type="text" inputmode="decimal" autocomplete="off" placeholder="0" value="' + (nc || val == null ? '' : esc(String(val))) + '" data-q="' + key + '"' + dis + '>' +
     '<button class="cyp-btn cyp-btn--primary" data-a="step" data-k="' + key + '" data-s="' + step + '" aria-label="More"' + dis + '>' + ic('plus') + '</button></div>' +
-    (key === 'pcs' || nc ? '' : '<div class="four">' + [[0, '0'], [0.25, '¼'], [0.5, '½'], [0.75, '¾']].map(function (x) { return btn(x[0] ? '+' + x[1] : '.0', 'data-a="frac" data-k="' + key + '" data-v="' + x[0] + '" aria-label="' + (x[0] ? 'And ' + x[1] : 'Whole number') + '"'); }).join('') + '</div>') +
+    (key === 'pcs' || nc || (S.f.u && S.f.u[key] === 'portion') ? '' : '<div class="four">' + [[0, '0'], [0.25, '¼'], [0.5, '½'], [0.75, '¾']].map(function (x) { return btn(x[0] ? '+' + x[1] : '.0', 'data-a="frac" data-k="' + key + '" data-v="' + x[0] + '" aria-label="' + (x[0] ? 'And ' + x[1] : 'Whole number') + '"'); }).join('') + '</div>') +
     (nc === undefined ? '' : choice('', [{ l: 'Not counted', on: !!nc, at: 'data-a="nc" data-k="' + key + '"' }], { many: true, aria: label + ': not counted' })) + (tog || '') + '</div>';
 }
 /* halves and quarters for what is weighed or comes in bags and trays; whole numbers for chickens, eggs, loaves */
 function stepOf(unit) { return unit === 'kg' || unit === 'bags' || unit === 'trays' ? 0.25 : 1; }
-function rowUnit(it, u) { return it.unit !== it.use && u === 'unit' ? 'unit' : 'use'; }
+function rowUnit(it, u) { return u === 'portion' ? 'portion' : (it.unit !== it.use && u === 'unit' ? 'unit' : 'use'); }
+/* a quantity in the unit of the row: portions become the unit of the item with the size of one portion */
+function convRow(it, q, u, size) { if (u !== 'portion') return eatConv(it, q, u); if (!(size > 0)) return { use: null, unit: null }; var use = Math.round(q * size * 1000) / 1000; return { use: use, unit: it.unit === it.use ? use : (it.per > 0 ? Math.round(use / it.per * 1000) / 1000 : null) }; }
+/* leftovers: in portions when the size of a portion is known, else in kg, bags or trays */
+function afterTog(it, u, size) {
+  var cur = rowUnit(it, u), opts = (size > 0 ? ['portion'] : []).concat(it.unit === it.use ? ['use'] : ['unit', 'use']);
+  return (size > 0 && cur === 'portion' ? '<p class="small muted">1 portion = ' + fmt(size) + ' ' + esc(it.use) + (it.id === 'chk' ? ' (a chicken is cut in 10)' : '') + '</p>' : '') +
+    (size > 0 ? '' : '<p class="small muted">To write it in portions: its quantity in the plan of the week, or the size of a portion in Overview, Settings, Food and units.</p>') +
+    (opts.length > 1 ? choice('', opts.map(function (x) { return { l: x === 'portion' ? 'In portions' : 'In ' + esc(x === 'unit' ? it.unit : it.use), on: x === cur, at: 'data-a="unit" data-k="' + it.id + '" data-v="' + x + '"' }; }), { name: 'au_' + it.id }) : '');
+}
 function unitTog(it, u) {
   if (it.unit === it.use) return '';
   var cur = rowUnit(it, u);
@@ -765,9 +774,9 @@ function foodRowsHtml(f, after) {
   var db = view(), out = '';
   f.rows.forEach(function (id) {
     var it = eatItem(db, id); if (!it) return;
-    var un = rowUnit(it, f.u[id]), ut = un === 'unit' ? it.unit : it.use;
-    out += qRow(id, (id === 'veg' && f.vegName ? f.vegName : it.name), ut, f.q[id], !!f.nc[id], stepOf(ut), after ? '' : unitTog(it, f.u[id]));
-    if (id === 'chk') out += qRow('pcs', after ? 'Chicken pieces left' : 'Chicken pieces cut', 'pieces', f.q.pcs, !!f.nc.pcs, 1);
+    var un = rowUnit(it, f.u[id]), ut = un === 'portion' ? 'portions' : (un === 'unit' ? it.unit : it.use), size = f.ps ? f.ps[id] : null;
+    out += qRow(id, (id === 'veg' && f.vegName ? f.vegName : it.name), ut, f.q[id], !!f.nc[id], un === 'portion' ? 1 : stepOf(ut), after ? afterTog(it, f.u[id], size) : unitTog(it, f.u[id]));
+    if (id === 'chk' && !(after && un === 'portion')) out += qRow('pcs', after ? 'Chicken pieces left' : 'Chicken pieces cut', 'pieces', f.q.pcs, !!f.nc.pcs, 1);
   });
   return out;
 }
@@ -782,7 +791,7 @@ SCREENS.before = function () {
 SCREENS.after = function () {
   var db = view(), b = eatGet(db, 'dbefore', S.sess.centre, S.date, '');
   if (!b) return backLink() + title('Leftovers') + dayTitle() + skipNote('after') + '<p>First save the quantities for today.</p>' + btn('Quantities for today', 'data-a="go" data-to="before"', 'primary block') + skipBtn('after');
-  return backLink() + title('Leftovers') + dayTitle() + skipNote('after') + '<p>What is left at the end of the day, after the last meal. A half or a quarter: tap ½ or ¼.</p>' +
+  return backLink() + title('Leftovers') + dayTitle() + skipNote('after') + '<p>What is left at the end of the day, after the last meal, in portions: the app turns them into kg. A chicken is cut in 10 portions.</p>' +
     card(foodRowsHtml(S.f, true)) +
     '<div class="cyp-card" id="bal">' + balanceHtml() + '</div>' +
     btn('Save', 'data-a="saveAfter"', 'primary block') + skipBtn('after');
@@ -796,11 +805,11 @@ function balanceHtml() {
     var it = eatItem(db, id); if (!it) return;
     var bq = b.data.q[id], bnc = b.data.nc && b.data.nc[id], back = f.nc[id] ? null : eatNum(f.q[id]);
     var bu = rowUnit(it, (b.data.u || {})[id]), au = rowUnit(it, f.u[id] || bu);
-    var tb = bnc || bq == null ? null : eatConv(it, bq, bu), ta = f.nc[id] ? null : eatConv(it, back || 0, au);
+    var tb = bnc || bq == null ? null : eatConv(it, bq, bu), ta = f.nc[id] ? null : convRow(it, back || 0, au, f.ps ? f.ps[id] : null);
     var used = tb && ta && tb.use != null && ta.use != null ? Math.max(0, Math.round((tb.use - ta.use) * 1000) / 1000) : null;
     var usedU = tb && ta && tb.unit != null && ta.unit != null ? Math.max(0, Math.round((tb.unit - ta.unit) * 1000) / 1000) : null;
     var pt = perTxt(it, used != null && base ? used / base : null);
-    if (id === 'chk' && base) { var pc = b.data.q.pcs, pnc = b.data.nc && b.data.nc.pcs, pb = f.nc.pcs ? null : eatNum(f.q.pcs); if (pc != null && !pnc && !f.nc.pcs) pt = fmt(Math.max(0, pc - (pb || 0)) / base) + ' pieces a plate'; }
+    if (id === 'chk' && base) { var pc = b.data.q.pcs, pnc = b.data.nc && b.data.nc.pcs, pb = f.nc.pcs ? null : (au === 'portion' ? back : eatNum(f.q.pcs)); if (pc != null && !pnc && !f.nc.pcs) pt = fmt(Math.max(0, pc - (pb || 0)) / base) + ' pieces a plate'; }
     rows.push([esc(it.name), used == null && usedU == null ? 'Not counted' : (usedU != null && it.unit !== it.use ? fmt(usedU) + ' ' + esc(it.unit) + (used != null ? ' = ' : '') : '') + (used != null ? fmt(used) + ' ' + esc(it.use) : ''), pt]);
   });
   return h3('Balance of the day') + table([['Item'], ['Used'], ['A plate', 1]], rows) +
@@ -983,11 +992,52 @@ function plFill(data) {
     for (var k in (d.o || {})) o.push([k, String(d.o[k])]);
     var q = {}; for (var id in (d.q || {})) q[id] = String(d.q[id]);
     var p = {}; for (var m in (d.p || {})) p[m] = String(d.p[m]);
-    f.pld[w] = { food: d.food || '', p: p, o: o.length ? o : [['', '']], q: q };
+    /* base: for each food, the quantity and the people it was planned for; the quantities follow the people (comment of Mauro, 24/11: half automatic) */
+    var tot = plTotal({ p: p, o: o }), base = {}; for (id in q) if (tot && Number(q[id]) > 0) base[id] = [Number(q[id]), tot];
+    var x = (d.x || []).map(function (y) { return [y.who || '', y.food || '']; });
+    f.pld[w] = { food: d.food || '', p: p, o: o.length ? o : [['', '']], q: q, base: base, man: {}, x: x };
   }
   f.plr = data && data.remark || '';
 }
-function plLoad() { var db = view(), c = plCentre(), e = c && S.f.plw ? eatGet(db, 'plan', c, S.f.plw, '') : null; plFill(e ? e.data : null); S.f.plPhoto = e && e.data.photo || ''; S.f.plOld = !!e; }
+/* the people of a day in the form: every meal and every other place */
+function plTotal(d) { var t = 0, m; for (m in d.p) t += Number(d.p[m]) || 0; (d.o || []).forEach(function (x) { t += Number(x[1]) || 0; }); return t; }
+/* a quantity for so many people, rounded the way the store counts it: whole chickens, quarter bags and trays, half kg */
+function plRound(it, v) { var st = /chicken|sausage|loa/.test(it.unit) ? 1 : (it.unit === 'kg' ? 0.5 : 0.25); return Math.round(v / st) * st; }
+/* how much of a food this kitchen plans for one person: the plans already saved, newest first */
+function plRation(c, id) {
+  var es = view().entries.filter(function (e) { return e.type === 'plan' && e.centre === c && !e.del; }).sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+  for (var i = 0; i < es.length; i++) for (var w = 0; w < 7; w++) {
+    var d = (es[i].data.days || {})[String(w)]; if (!d || !d.q || !(d.q[id] > 0)) continue;
+    var t = 0, k; for (k in (d.p || {})) t += d.p[k] || 0; for (k in (d.o || {})) t += d.o[k] || 0; if (t) return d.q[id] / t;
+  }
+  return null;
+}
+/* the people of a day changed: every quantity not written by hand follows them */
+function plAuto(w) {
+  var d = S.f.pld[w], tot = plTotal(d), db = view(), c = plCentre();
+  for (var id in d.q) {
+    if (d.man[id]) continue; var it = eatItem(db, id), b = d.base[id], r = b ? b[0] / b[1] : plRation(c, id); if (!it || r == null || !tot) continue;
+    d.q[id] = String(plRound(it, r * tot)); var el = document.getElementById('pl' + w + 'q' + id); if (el) el.value = d.q[id];
+  }
+  var sh = document.getElementById('plsh' + w); if (sh) sh.innerHTML = plShares(db, w);
+}
+/* the part of each food for the other places, from their people: "For Ukubalula (10 of 170): 0.5 trays of eggs" */
+function plShares(db, w) {
+  var d = S.f.pld[w], tot = plTotal(d), out = [];
+  if (!tot) return '';
+  d.o.forEach(function (x) {
+    var n = Number(x[1]) || 0; if (!x[0] || !n) return;
+    var parts = []; for (var id in d.q) { var it = eatItem(db, id), q = Number(d.q[id]); if (it && q > 0) parts.push(fmt(Math.round(q * n / tot * 100) / 100) + ' ' + esc(it.unit) + ' of ' + esc(it.name.toLowerCase())); }
+    if (parts.length) out.push('For ' + esc(x[0]) + ' (' + n + ' of ' + tot + ' people): ' + parts.join(', '));
+  });
+  return out.join('<br>');
+}
+/* the plan of the week, or, when there is none yet, the last plan of this kitchen: the food is mostly the same every week, so only what is different is changed */
+function plLoad() {
+  var db = view(), c = plCentre(), e = c && S.f.plw ? eatGet(db, 'plan', c, S.f.plw, '') : null, prev = null;
+  if (c && !e) db.entries.forEach(function (x) { if (x.type === 'plan' && x.centre === c && !x.del && x.date < S.f.plw && (!prev || x.date > prev.date)) prev = x; });
+  plFill(e ? e.data : (prev ? { days: prev.data.days } : null)); S.f.plPhoto = e && e.data.photo || ''; S.f.plOld = !!e; S.f.plCopied = !e && prev ? prev.date : '';
+}
 function planInit() {
   var t = todayStr(), w = eatMonday(S.sess.mode === 'entry' && S.date ? S.date : t), next = eatAddDays(eatMonday(t), 7);
   S.f.plw = w > next ? next : w; S.pl = { step: 'form' }; plLoad();
@@ -1002,7 +1052,8 @@ function plData() {
     d.o.forEach(function (x) { var nm = eatText(x[0], 40), v2 = plNum(x[1]), pid = nm ? eatPlaceMatch(view(), nm) : ''; if (pid && eatCentre(view(), pid).place) nm = shown(eatCentre(view(), pid).name); if (nm && v2 != null) { o[nm] = Math.round(v2); has = true; } });
     for (var id in d.q) { var v3 = plNum(d.q[id]); if (v3 != null) { q[id] = v3; has = true; } }
     if (eatText(d.food, 60)) has = true;
-    if (has) { days[String(w)] = { p: p, o: o, q: q, food: eatText(d.food, 60) }; any = true; }
+    var x = (d.x || []).map(function (y) { return { who: eatText(y[0], 40), food: eatText(y[1], 60) }; }).filter(function (y) { return y.who || y.food; });
+    if (has || x.length) { days[String(w)] = { p: p, o: o, q: q, food: eatText(d.food, 60), x: x }; any = true; }
   }
   return any ? { days: days, photo: f.plPhoto || '', remark: eatText(f.plr, 200) } : null;
 }
@@ -1016,7 +1067,11 @@ function plDay(db, c, w) {
   var shown2 = db.items.filter(function (it) { return d.q[it.id] != null; }), more = db.items.filter(function (it) { return d.q[it.id] == null; });
   var food = shown2.map(function (it) { return field(esc(it.name) + ' (' + esc(it.unit) + ')', 'pl' + w + 'q' + it.id, plInput('pl' + w + 'q' + it.id, d.q[it.id], PLWD[w] + ', ' + it.name + ' in ' + it.unit)); }).join('') +
     (more.length ? selectField('Add a food', 'pl' + w + 'add', [['', 'Choose']].concat(more.map(function (it) { return [it.id, it.name + ' (' + it.unit + ')']; })), '', 'plAddFood') : '');
-  return card(h3(dayName(date)) + field('Food of the day', 'pl' + w + 'f', plInput('pl' + w + 'f', d.food, PLWD[w] + ': food of the day', true)) + ppl + oth + food, 'data-plday="' + w + '"');
+  var diff = d.x.map(function (y, i) {
+    return '<div class="cyp-field"><label for="pl' + w + 'xw' + i + '">Something different: who, and what they eat</label><div class="inl">' + plInput('pl' + w + 'xw' + i, y[0], PLWD[w] + ', something different: who', true, 'Who') + plInput('pl' + w + 'xf' + i, y[1], PLWD[w] + ', something different: what they eat', true, 'What') + '</div></div>';
+  }).join('') + btn('+ Something different for some people', 'data-a="plDiff" data-w="' + w + '"');
+  return card(h3(dayName(date)) + field('Food of the day, the same for everybody', 'pl' + w + 'f', plInput('pl' + w + 'f', d.food, PLWD[w] + ': food of the day', true)) + ppl + oth + food +
+    '<p class="small muted" id="plsh' + w + '">' + plShares(db, w) + '</p>' + diff, 'data-plday="' + w + '"');
 }
 SCREENS.plan = function () {
   var db = view(), v = S.pl || { step: 'form' }, c = plCentre(), t = todayStr(), mon = eatMonday(t), next = eatAddDays(mon, 7);
@@ -1032,6 +1087,7 @@ SCREENS.plan = function () {
     choice('Week', [{ l: 'This week, ' + dmy(mon), on: S.f.plw === mon, at: 'data-a="plWeek" value="' + mon + '"' }, { l: 'Next week, ' + dmy(next), on: S.f.plw === next, at: 'data-a="plWeek" value="' + next + '"' }].concat(S.f.plw !== mon && S.f.plw !== next ? [{ l: 'Week of ' + dmy(S.f.plw), on: true, at: 'data-a="plWeek" value="' + S.f.plw + '"' }] : []), { name: 'plw' });
   if (!c) return head + pick;
   return head + pick + (S.f.plOld ? banner('', 'The plan of this week is saved. Saving again replaces it.') : '') +
+    (S.f.plCopied && !v.read ? banner('', 'Filled in from the plan of the week of ' + dmy(S.f.plCopied) + '. Change only what is different: the quantities follow the people.') : '') +
     [0, 1, 2, 3, 4, 5, 6].map(function (w) { return plDay(db, c, w); }).join('') +
     '<datalist id="plplaces">' + places(db).filter(function (x) { return x.id !== c; }).map(function (x) { return '<option value="' + esc(shown(x.name)) + '">'; }).join('') + '</datalist>' +
     field('Remark', 'plr', plInput('plr', S.f.plr, 'Remark', true)) +
@@ -1356,10 +1412,11 @@ SCREENS.settings = function () {
       }).join('');
     },
     food: function () {
-      return card(h3('How each food is counted in the store') + small('In its own unit (kg, chicken, egg), or by the bag, tray, can, pack or piece. For those, write how much is in one.') + db.items.map(function (it) {
+      return card(h3('How each food is counted in the store') + small('In its own unit (kg, chicken, egg), or by the bag, tray, can, pack or piece. For those, write how much is in one. Leftovers are written in portions: empty = the size of a portion comes from the plan of the week (a chicken: 10 portions).') + db.items.map(function (it) {
         var un = S.f['un_' + it.id] || it.unit, pack = un !== it.use, per = S.f['pe_' + it.id] != null ? S.f['pe_' + it.id] : (it.unit === un && it.per ? it.per : '');
         return '<div class="qrow rowform">' + field(esc(it.name) + ': counted in', 'un_' + it.id, '<select id="un_' + it.id + '" class="cyp-input" data-a-change="unitSel" data-id="' + it.id + '">' + [it.use].concat(EAT_PACKS.filter(function (u) { return u !== it.use && (u !== 'pieces' || it.use === 'kg'); })).map(function (u) { return '<option value="' + u + '"' + (u === un ? ' selected' : '') + '>' + esc(unitOne(u)) + '</option>'; }).join('') + '</select>') +
-          (pack ? field('1 ' + esc(unitOne(un)) + ' = (' + esc(it.use) + ')', 'pe_' + it.id, '<input id="pe_' + it.id + '" class="cyp-input num" type="text" inputmode="decimal" value="' + esc(String(per)) + '" data-f="pe_' + it.id + '">') : '') + '</div>';
+          (pack ? field('1 ' + esc(unitOne(un)) + ' = (' + esc(it.use) + ')', 'pe_' + it.id, '<input id="pe_' + it.id + '" class="cyp-input num" type="text" inputmode="decimal" value="' + esc(String(per)) + '" data-f="pe_' + it.id + '">') : '') +
+          field('1 portion = (' + esc(it.use) + ')', 'po_' + it.id, '<input id="po_' + it.id + '" class="cyp-input num" type="text" inputmode="decimal" placeholder="' + (it.id === 'chk' ? '0.1' : 'from the plan') + '" value="' + esc(String(S.f['po_' + it.id] != null ? S.f['po_' + it.id] : (it.portion > 0 ? it.portion : ''))) + '" data-f="po_' + it.id + '">') + '</div>';
       }).join('') + btn('Save the units', 'data-a="saveUnits"', 'primary block'));
     },
     places: function () { return placesCard(db); },
@@ -1424,6 +1481,15 @@ function enter(scr) {
     /* the unit of each row: as saved; at the end of the day = the unit of the morning; new rows start in the store unit (bags, trays) */
     var su = e && e.data.u ? e.data.u : null, bu = b && b.data.u ? b.data.u : {};
     S.f.u = {}; rows.forEach(function (id) { var it = eatItem(db, id); if (!it || it.unit === it.use) return; S.f.u[id] = scr === 'after' ? (bu[id] || 'use') : (e ? ((su && su[id]) || 'use') : 'unit'); });
+    /* leftovers in portions: the size of one portion of each food; saved ones show again in portions */
+    if (scr === 'after') {
+      S.f.ps = {}; rows.forEach(function (id) {
+        var size = e && e.data.ps && e.data.ps[id] > 0 ? e.data.ps[id] : eatPortionSize(db, c, d, id); if (!(size > 0)) return;
+        S.f.ps[id] = size;
+        if (e && e.data.pz && e.data.pz[id] != null) { S.f.u[id] = 'portion'; S.f.q[id] = e.data.pz[id]; }
+        else if (!e || e.data.q[id] == null) S.f.u[id] = 'portion';
+      });
+    }
   }
   if (scr === 'note') {
     var nt = S.noteNo ? eatNote(db, S.noteNo) : null;
@@ -1506,14 +1572,22 @@ A.go = function (el) { if (el.getAttribute('data-to') === 'plan') S.plFrom = S.s
 /* the plan of the week */
 function plSet(id, v) {
   if (id === 'plr') { S.f.plr = v; return; }
-  var m = /^pl(\d)(f|p|on|ov|q)(.*)$/.exec(id); if (!m || !S.f.pld) return; var d = S.f.pld[Number(m[1])];
-  if (m[2] === 'f') d.food = v; else if (m[2] === 'p') d.p[m[3]] = v; else if (m[2] === 'q') d.q[m[3]] = v; else d.o[Number(m[3])][m[2] === 'on' ? 0 : 1] = v;
+  var m = /^pl(\d)(f|p|on|ov|q|xw|xf)(.*)$/.exec(id); if (!m || !S.f.pld) return; var w = Number(m[1]), d = S.f.pld[w];
+  if (m[2] === 'f') d.food = v;
+  else if (m[2] === 'p') { d.p[m[3]] = v; plAuto(w); }
+  else if (m[2] === 'q') { d.q[m[3]] = v; d.man[m[3]] = 1; var sh = document.getElementById('plsh' + w); if (sh) sh.innerHTML = plShares(view(), w); }
+  else if (m[2] === 'xw' || m[2] === 'xf') d.x[Number(m[3])][m[2] === 'xw' ? 0 : 1] = v;
+  else { d.o[Number(m[3])][m[2] === 'on' ? 0 : 1] = v; plAuto(w); }
 }
 A.planGo = function () { var from = S.scr; go('plan'); S.plFrom = from === 'people' ? 'people' : 'week'; render(); };
 A.plCentre = function (el) { S.f.plc = el.value; plLoad(); S.keepScroll = true; render(); };
 A.plWeek = function (el) { S.f.plw = el.value; plLoad(); S.keepScroll = true; render(); };
+A.plDiff = function (el) { S.f.pld[Number(el.getAttribute('data-w'))].x.push(['', '']); S.keepScroll = true; render(); };
 A.plOther = function (el) { S.f.pld[Number(el.getAttribute('data-w'))].o.push(['', '']); S.keepScroll = true; render(); };
-A.plAddFood = function (el) { if (!el.value) return; S.f.pld[Number(el.id.charAt(2))].q[el.value] = ''; S.keepScroll = true; render(); };
+A.plAddFood = function (el) {
+  if (!el.value) return; var w = Number(el.id.charAt(2)), d = S.f.pld[w], it = eatItem(view(), el.value), r = plRation(plCentre(), el.value), tot = plTotal(d);
+  d.q[el.value] = r != null && tot ? String(plRound(it, r * tot)) : ''; S.keepScroll = true; render();
+};
 A.plAgain = function () { S.f = {}; planInit(); render(); };
 A.plSave = function () {
   var c = plCentre(), data = plData();
@@ -1536,11 +1610,11 @@ function plRead(data) {
   function fail(msg) { S.pl = { step: 'error', msg: msg, img: img }; render(); }
   if (!navigator.onLine) return fail('The picture is read on the internet. Try again when there is internet, or write the plan here.');
   clearInterval(S.dvTick); S.dvTick = setInterval(function () { var el = document.getElementById('rsec'); if (el && S.pl && S.pl.t0) el.textContent = Math.round((Date.now() - S.pl.t0) / 1000); else clearInterval(S.dvTick); }, 1000);
-  post({ action: 'read', kind: 'plan', mode: S.sess.mode, cred: S.sess.cred, image: data }, 60000).then(function (res) {
+  post({ action: 'read', kind: 'plan', mode: S.sess.mode, cred: S.sess.cred, image: data }, 90000).then(function (res) {
     if (!res || !res.ok) {
-      var e = res && res.error;
+      var e = res && res.error; S.f.plPhoto = res && res.photo || S.f.plPhoto;
       if (e === 'pin') return signOut('The PIN has changed. Sign in again.');
-      return fail(e === 'no_reader' || e === 'reader_key' ? 'The photo reader is not set up. Write the plan here, or tell the office.' : (e === 'reader_busy' ? 'The photo reader is busy. Wait one minute and try again, or write the plan here.' : 'The picture could not be read. Take it again, flat, with the whole paper, or write the plan here.'));
+      return fail(e === 'no_reader' || e === 'reader_key' ? 'The photo reader is not set up. Write the plan here, or tell the office.' : (e === 'reader_busy' ? 'The photo reader is busy. Wait one minute and try again, or write the plan here.' : 'The picture could not be read. Take it again, flat, with the whole paper, or write the plan here.') + (res && res.detail ? ' (' + String(res.detail).slice(0, 80) + ')' : ''));
     }
     var r = res.plan || {};
     if (!r.clear) return fail('No plan could be read in the picture. Take it again, flat, with the whole paper, or write the plan here.');
@@ -1550,7 +1624,7 @@ function plRead(data) {
     var c = plCentre(), old = c ? eatGet(view(), 'plan', c, S.f.plw, '') : null;
     plFill(r); S.f.plPhoto = res.photo || ''; S.f.plOld = !!old;
     S.pl = { step: 'form', read: true, img: img }; render();
-  }).catch(function () { fail('The picture could not be sent. Try again, or write the plan here.'); });
+  }).catch(function (err) { fail(String(err && err.message) === 'timeout' ? 'The photo reader took too long. Try again, or write the plan here.' : 'The picture could not be sent. Try again, or write the plan here.'); });
 }
 A.hideNotice = function () { S.notice = ''; render(); };
 function openWithLink(text) {
@@ -1728,7 +1802,15 @@ A.saveBefore = function () {
 A.saveAfter = function () {
   var d = qData(); S.f.rows.forEach(function (id) { if (!(id in d.q) || d.q[id] == null) d.q[id] = S.f.nc[id] ? null : (eatNum(S.f.q[id]) || 0); });
   if (S.f.rows.indexOf('chk') >= 0 && !S.f.nc.pcs && d.q.pcs == null) d.q.pcs = 0;
-  d.u = S.f.u || {};
+  d.u = {}; for (var uk in (S.f.u || {})) d.u[uk] = S.f.u[uk];
+  /* portions: kept as written, and turned into the unit of the item; chicken portions are the pieces left */
+  var pz = {}, ps = {}, anyP = false;
+  S.f.rows.forEach(function (id) {
+    if (S.f.u[id] !== 'portion' || S.f.nc[id] || d.q[id] == null) return; var it = eatItem(view(), id), size = S.f.ps[id];
+    pz[id] = d.q[id]; ps[id] = size; d.q[id] = convRow(it, d.q[id], 'portion', size).use; d.u[id] = 'use'; anyP = true;
+    if (id === 'chk') d.q.pcs = pz[id];
+  });
+  if (anyP) { d.pz = pz; d.ps = ps; }
   saveEntry('dafter', '', d); setStepSkip('after', false); go('today');
 };
 function queueNote(centre, date, data) { queue({ kind: 'entry', e: { type: 'note', centre: centre, date: date, meal: '', data: data, by: S.sess.nid || '', byName: myName() || 'Overview', at: nowIso() } }); }
@@ -1844,6 +1926,7 @@ A.saveUnits = function () {
     var un = S.f['un_' + it.id] || it.unit, pack = un !== it.use, raw = S.f['pe_' + it.id], per = pack ? (raw != null ? eatNum(raw) : (it.unit === un ? it.per : null)) : 1;
     if (pack && !per) { per = 0; miss.push(it.name.toLowerCase()); }
     if (un !== it.unit || (pack && per !== it.per)) { queue({ kind: 'item_unit', iid: it.id, unit: un, per: per }); n++; }
+    var po = S.f['po_' + it.id]; if (po != null && (eatNum(po) || 0) !== (it.portion || 0)) { queue({ kind: 'item_portion', iid: it.id, v: String(po).trim() === '' ? '' : eatNum(po) }); n++; } delete S.f['po_' + it.id];
     delete S.f['un_' + it.id]; delete S.f['pe_' + it.id];
   });
   S.good = n ? 'Units saved.' : 'Nothing changed.'; S.notice = miss.length ? 'Still missing: how much is in one of ' + listWords(miss) + '.' : ''; S.keepScroll = true; render();
