@@ -552,7 +552,7 @@ SCREENS.more = function () {
 function dayBar() {
   var t = todayStr(), isT = S.date === t;
   return list(row('cal', dayName(S.date), '', '<button class="cyp-btn" data-a="dayAsk" aria-label="' + dayName(S.date) + ': open the calendar to change the day">Choose the day</button>',
-    tag(isT ? 'ok' : 'warn', isT ? 'Today' : (S.date === eatAddDays(t, -1) ? 'Yesterday' : 'Not today')), 'daybar'));
+    tag(isT ? '' : 'warn', isT ? 'Today' : 'Not today'), 'daybar'));
 }
 /* before counting, the person sees the calendar and confirms the day (comments of 20/11: people think more and make fewer mistakes).
    Asked at each sign in, when the date changes, after 30 minutes away, and from the day bar */
@@ -1016,8 +1016,12 @@ function chapterNav() {
   return '<nav class="cyp-nav cyp-nav--chapters" aria-label="Chapters">' + OVSECS.map(function (x, i) { return '<a href="#" class="label-caps" data-a="ovSec" data-s="' + x[0] + '"' + (x[0] === sec ? ' aria-current="page"' : '') + ' aria-label="' + (i + 1) + ' ' + x[1] + '">' + (i + 1) + '<span class="cyp-nav__name">&nbsp;' + x[1] + '</span></a>'; }).join('') + '</nav>';
 }
 /* one place or section with its bar, for the width of a phone (ProgressRow) */
-function prow(cls, icon, name, pct, big, left, right) {
-  return '<div class="cyp-prow ' + cls + '"><div class="cyp-prow__head"><span class="cyp-disc cyp-disc--sm">' + ic(icon) + '</span><span class="cyp-prow__name">' + name + '</span><span class="cyp-prow__pct">' + big + '</span></div><span class="cyp-bar"><i style="width:' + Math.max(0, Math.min(100, Math.round(pct))) + '%"></i></span><div class="cyp-prow__figs"><span>' + left + '</span><span>' + right + '</span></div></div>';
+function prow(cls, icon, name, pct, big, left, right, open) {
+  return '<div class="cyp-prow ' + cls + '"><div class="cyp-prow__head"><span class="cyp-disc cyp-disc--sm">' + ic(icon) + '</span><span class="cyp-prow__name">' + name + '</span><span class="cyp-prow__pct">' + big + '</span>' + (open || '') + '</div><span class="cyp-bar"><i style="width:' + Math.max(0, Math.min(100, Math.round(pct))) + '%"></i></span><div class="cyp-prow__figs"><span>' + left + '</span><span>' + right + '</span></div></div>';
+}
+/* a row with no target: the value in the place of the percentage, no bar (a bar always means progress to a target) */
+function prowCount(cls, icon, name, value, under, open) {
+  return '<div class="cyp-prow cyp-prow--count ' + cls + '"><div class="cyp-prow__head"><span class="cyp-disc cyp-disc--sm">' + ic(icon) + '</span><span class="cyp-prow__name">' + name + '</span><span class="cyp-prow__pct">' + value + '</span>' + (open || '') + '</div><div class="cyp-prow__figs"><span>' + under + '</span></div></div>';
 }
 /* the place that is open, in its colour, with one percentage (ResultBand) */
 function placeBand(c, pct, words) {
@@ -1072,19 +1076,19 @@ SCREENS.overview = function () {
         cs.map(function (c) { var s = stats[c.id]; return progRow(c, pc(s.foodDone, s.foodDays), pc(s.foodDone, s.foodDays) + '%', s.foodDone, s.foodDays, dim(c)); }).join(''),
         ['Total', pc(fd, fdays) + '%', fd, fdays]) + note, 'data-prog')
       : card(h3('Food counted') + small('Days with a daily count, this week') +
-        cs.map(function (c) { var s = stats[c.id]; return prow(placeClass(c.id) + dim(c), 'pin', esc(shown(c.name)), pc(s.foodDone, s.foodDays), pc(s.foodDone, s.foodDays) + '%', plural(s.foodDone, 'day', 'days') + ' counted', 'of ' + s.foodDays); }).join('') + note, 'data-prog');
+        cs.map(function (c) { var s = stats[c.id]; return prow(placeClass(c.id) + dim(c), 'pin', esc(shown(c.name)), pc(s.foodDone, s.foodDays), pc(s.foodDone, s.foodDays) + '%', plural(s.foodDone, 'day', 'days') + ' counted', 'of ' + s.foodDays, c.id === sel ? '' : openBtn(c)); }).join('') + note, 'data-prog');
     /* the food a plate of one item, centre by centre: the bar compares the centres */
     var it = eatItem(db, S.item) || db.items[0];
     var vals = cs.map(function (c) { var s = stats[c.id]; return s.base[it.id] ? s.use[it.id] / s.base[it.id] : null; });
-    var max = Math.max.apply(null, vals.map(function (v) { return v || 0; })) || 1, sumU = 0, sumB = 0;
+    var sumU = 0, sumB = 0;
     cs.forEach(function (c) { var s = stats[c.id]; if (s.base[it.id]) { sumU += s.use[it.id]; sumB += s.base[it.id]; } });
     var per1 = function (v) { return v == null ? '–' : (it.use === 'kg' ? Math.round(v * 1000) : fmt(v)); }, u1 = it.use === 'kg' ? 'g' : esc(it.use);
     var pick = selectField('Food a plate', 'ovit', db.items.map(function (x) { return [x.id, x.name]; }), it.id, 'itemSel');
-    body += wide ? card(pick + progTable('scale', esc(it.name), u1 + ' a plate, this week', ['', 'A plate', 'Plates'],
-        cs.map(function (c, i) { var s = stats[c.id]; return progRow(c, vals[i] == null ? 0 : vals[i] / max * 100, '', per1(vals[i]), s.base[it.id] ? nf(s.base[it.id]) : '–', dim(c)); }).join(''),
-        ['All centres', '', per1(sumB ? sumU / sumB : null), sumB ? nf(sumB) : '–']), 'data-food')
+    body += wide ? card(pick + small(esc(it.name) + ': ' + u1 + ' a plate, this week. No target set.') + table([['Centre'], ['A plate (' + u1 + ')', 1], ['Plates', 1]],
+        cs.map(function (c, i) { var s = stats[c.id]; return [esc(shown(c.name)), per1(vals[i]), s.base[it.id] ? nf(s.base[it.id]) : '–']; }),
+        ['All centres', per1(sumB ? sumU / sumB : null), sumB ? nf(sumB) : '–']), 'data-food')
       : card(pick + small(esc(it.name) + ': ' + u1 + ' a plate, this week') +
-        cs.map(function (c, i) { var s = stats[c.id]; return prow(placeClass(c.id) + dim(c), 'pin', esc(shown(c.name)), vals[i] == null ? 0 : vals[i] / max * 100, vals[i] == null ? '–' : per1(vals[i]) + ' ' + u1, s.base[it.id] ? nf(s.base[it.id]) + ' plates' : 'No count', ''); }).join('') +
+        cs.map(function (c, i) { var s = stats[c.id]; return prowCount(placeClass(c.id) + dim(c), 'pin', esc(shown(c.name)), vals[i] == null ? '–' : per1(vals[i]) + ' ' + u1, (s.base[it.id] ? 'a plate over ' + nf(s.base[it.id]) + ' plates' : 'no count') + ', no target set', c.id === sel ? '' : openBtn(c)); }).join('') +
         small('All centres: ' + (sumB ? per1(sumU / sumB) + ' ' + u1 + ' a plate, ' + nf(sumB) + ' plates' : 'no count')), 'data-food');
   }
   if (sec === 'store') {
