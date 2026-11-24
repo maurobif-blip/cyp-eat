@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'beta 1.3';
+var EAT_VERSION = 'beta 1.4';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 /* the meals a centre can have now (20/11: breakfast is left out for now; old breakfast counts are still read) */
 var EAT_MEALS_ON = ['Lunch', 'Dinner'];
@@ -148,6 +148,18 @@ function eatFixed(db, centre, meal) { var c = eatCentre(db, centre), n = c && c.
 function eatPlan(db, centre, date) { return eatGet(db, 'plan', centre, eatMonday(date), ''); }
 function eatPlanDay(db, centre, date) { var p = eatPlan(db, centre, date), w = eatWeekday(date); if (!p) return null; var d = (p.data.days || {})[String(w === 0 ? 6 : w - 1)]; return d || null; }
 /* the plates of the day cooked here for other places, from the plan; nobody counts them here */
+/* the size of one portion of a food, in its own unit (kg, chicken, egg): set in the settings; a chicken is cut in 10 portions (Mauro, 24/11);
+   otherwise what the plan of the day gives to one person (1.5 bags of mealie meal for 170 people = 0.22 kg). null when nothing says it */
+function eatPortionSize(db, centre, date, id) {
+  var it = eatItem(db, id); if (!it) return null;
+  if (it.portion > 0) return it.portion;
+  if (id === 'chk') return 0.1;
+  var day = eatPlanDay(db, centre, date), q = day && day.q ? day.q[id] : null, t = 0, k;
+  if (!(q > 0)) return null;
+  for (k in (day.p || {})) t += day.p[k] || 0; for (k in (day.o || {})) t += day.o[k] || 0;
+  var use = it.unit === it.use ? q : (it.per > 0 ? q * it.per : null);
+  return t && use != null ? Math.round(use / t * 1000) / 1000 : null;
+}
 function eatPlanOthers(day) { var t = 0; if (day && day.o) for (var k in day.o) t += day.o[k] || 0; return t; }
 /* what the photo reader read on a plan, made into the data of a plan entry: kitchen, Monday of the week, days */
 function eatPlanRead(db, r) {
@@ -156,7 +168,8 @@ function eatPlanRead(db, r) {
   (r.days || []).forEach(function (x) {
     var w = WDN.indexOf(String(x.day || '').toLowerCase().trim()); if (w < 0 && x.day) w = WDN.map(function (d) { return d.slice(0, 3); }).indexOf(String(x.day).toLowerCase().trim().slice(0, 3)); if (w < 0) return;
     var p = {}, o = {}, q = {}; if (num(x.lunch) != null) p.Lunch = Math.round(num(x.lunch)); if (num(x.dinner) != null) p.Dinner = Math.round(num(x.dinner));
-    (x.other_places || []).forEach(function (y) { var nm = eatText(y.place, 40), v = num(y.people); if (nm && v != null) o[nm] = Math.round(v); });
+    /* a place of the app keeps the name the app gives it (ukubalula -> Ukubalula) */
+    (x.other_places || []).forEach(function (y) { var nm = eatText(y.place, 40), v = num(y.people), pm = nm ? eatPlaceMatch(db, nm) : '', pc = pm ? eatCentre(db, pm) : null; if (pc && pc.place) nm = pc.name; if (nm && v != null) o[nm] = Math.round(v); });
     (x.items || []).forEach(function (y) { var it = eatItem(db, String(y.item || '')), v = num(y.quantity); if (it && v != null) q[it.id] = (q[it.id] || 0) + v; });
     days[String(w)] = { p: p, o: o, q: q, food: eatText(x.food, 60) };
   });
@@ -604,6 +617,14 @@ function eatApply(db, mode, op, nowIso, info) {
     info.audit.push({ time: nowIso, who: 'Overview', action: 'Unit changed', detail: iu.name + ': counted in ' + iu.unit + (iu.unit !== iu.use ? ', 1 ' + iu.unit.replace(/s$/, '') + ' = ' + (iu.per || '?') + ' ' + iu.use : '') });
     return { ok: true };
   }
+  /* the size of one portion of a food, in its own unit; empty or 0: from the plan of the day */
+  if (k === 'item_portion') {
+    var ip = eatItem(db, op.iid); if (!ip) return { ok: false, error: 'id' };
+    var ps = op.v == null || op.v === '' ? 0 : eatNum(op.v); if (ps == null || ps < 0 || ps > 100) return { ok: false, error: 'fields' };
+    ip.portion = ps; bump(ip);
+    info.audit.push({ time: nowIso, who: 'Overview', action: 'Portion', detail: ip.name + ': ' + (ps ? '1 portion = ' + ps + ' ' + ip.use : 'from the plan') });
+    return { ok: true };
+  }
   if (k === 'item_per') {
     var it = eatItem(db, op.iid); if (!it) return { ok: false, error: 'id' };
     var per = eatNum(op.per); if (per == null) return { ok: false, error: 'fields' };
@@ -639,6 +660,8 @@ function eatClean(db, type, d) {
   /* on: the food of the whole day not counted (old button). menu, before, after: that step alone is marked as not done,
      and anyone can still fill it in later; a step that is filled in counts, whatever the mark says */
   if (type === 'skip' || type === 'dskip') { var so = { on: !!d.on }; if (type === 'dskip') { if (d.menu) so.menu = true; if (d.before) so.before = true; if (d.after) so.after = true; } return so; }
+  /* leftovers written in portions (beta 1.4): pz = the portions written, ps = the size of one portion used; q is already in the unit of the item */
+  if (type === 'dafter' && (d.pz || d.ps)) return { q: qs(d.q), nc: ncs(d.nc), u: us(d.u), pz: qs(d.pz), ps: qs(d.ps) };
   if (type === 'dbefore' || type === 'dafter') return { q: qs(d.q), nc: ncs(d.nc), u: us(d.u) };
   if (type === 'dmenu') {
     var ms = {}, src = d.meals || {};
@@ -660,7 +683,10 @@ function eatClean(db, type, d) {
       for (var ok2 in (sd.o || {})) { var onm = eatText(ok2, 40), ov = pnum(sd.o[ok2]); if (onm && ov != null && on2 < 4) { oo[onm] = ov; on2++; any2 = true; } }
       var pq3 = qs(sd.q), q3 = {}; for (var k3 in pq3) if (k3 !== 'pcs' && pq3[k3] != null && pq3[k3] >= 0) { q3[k3] = pq3[k3]; any2 = true; }
       var fd = eatText(sd.food, 60); if (fd) any2 = true;
-      if (any2) days[String(wd)] = { p: pp2, o: oo, q: q3, food: fd };
+      /* something different for some people (comment of Mauro, 24/11): who, and what they eat; at most 4 */
+      var xx = []; (sd.x || []).forEach(function (y) { var xw = eatText(y && y.who, 40), xf = eatText(y && y.food, 60); if ((xw || xf) && xx.length < 4) xx.push({ who: xw, food: xf }); });
+      if (xx.length) any2 = true;
+      if (any2) days[String(wd)] = xx.length ? { p: pp2, o: oo, q: q3, food: fd, x: xx } : { p: pp2, o: oo, q: q3, food: fd };
     }
     return { days: days, photo: /^[A-Za-z0-9_\-]{10,80}$/.test(String(d.photo || '')) ? String(d.photo) : '', remark: eatText(d.remark, 200) };
   }
@@ -831,7 +857,7 @@ function planText_(db, e) {
     for (k in (d.p || {})) ppl.push(k + ' ' + d.p[k]);
     for (k in (d.o || {})) ppl.push(k + ' ' + d.o[k]);
     for (k in (d.q || {})) { var it = eatItem(db, k); if (it) food.push(it.name.toLowerCase() + ' ' + d.q[k] + ' ' + it.unit); }
-    out.push(WDN[w] + ': ' + (d.food ? d.food + ' · ' : '') + ppl.join(', ') + (food.length ? ' · ' + food.join(', ') : ''));
+    out.push(WDN[w] + ': ' + (d.food ? d.food + ' · ' : '') + ppl.join(', ') + (food.length ? ' · ' + food.join(', ') : '') + (d.x || []).map(function (y) { return ' · different for ' + y.who + ': ' + y.food; }).join(''));
   }
   return out.join('\n');
 }
@@ -937,8 +963,8 @@ function readPlanPrompt_(db) {
     'Return only this JSON: {"readable": true or false, "kitchen": "the kitchen: one of ' + places + ', or the name as written", "week_start": "YYYY-MM-DD of the first day, or empty", "remark": "anything else written, short", ' +
     '"days": [{"day": "Monday" to "Sunday", "food": "the food of the day, short", "lunch": number of people or null, "dinner": number of people for sapa or supper or null, ' +
     '"other_places": [{"place": "the name", "people": number}], "items": [{"item": "item id", "quantity": number}]}]}. ' +
-    'Item ids: ' + items + '. Give each quantity in the unit in brackets: eggs in trays (a balance of single eggs as a part of a tray, 30 eggs a tray), chickens as whole chickens, pork and fish in kg, mealie meal in bags. ' +
-    'Give the total of the day for each item, when it is written or can be added up from the lines; leave out an item with no quantity. ' +
+    'Item ids: ' + items + '. Give each quantity in the unit in brackets: eggs in trays (30 eggs a tray), mealie meal in bags (packs of mealie meal are bags), chickens as whole chickens, pork and fish in kg, mealie meal in bags. ' +
+    'Give the total of the day for each item: when a total is written ("Tot", "Total"), give that number exactly; otherwise add up the lines. A balance or a remainder carried from another day is already counted in the total: never add it again. Leave out an item with no quantity. ' +
     'Pieces of pork or a number of people are not quantities. Dates are written day/month/year; the year is 20' + new Date().getFullYear().toString().slice(2) + ' if not written. ' +
     'If the photo shows no plan, or it cannot be read, set "readable" to false.';
 }
