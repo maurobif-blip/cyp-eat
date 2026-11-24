@@ -28,7 +28,7 @@ h1,h2,h3,p{margin:0}
 
 /* ---------- bar at the top with what belongs to it (pages on a computer, chapters, the banner without internet) ---------- */
 .hdr{position:sticky;top:0;z-index:10}
-.cyp-appbar__sync{margin-left:auto;white-space:nowrap}
+.cyp-appbar__sync{white-space:nowrap}
 .cyp-tabbar a{-webkit-tap-highlight-color:transparent}
 main{flex:1 1 auto;display:grid;gap:var(--space-4);align-content:start;padding:var(--space-4)}
 main>*,.cyp-card>*,.cyp-sheet__body>*,.ovsec>*{min-width:0}
@@ -175,6 +175,7 @@ var IC = {
   box: '<path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
   check: '<path d="M20 6 9 17l-5-5"/>', x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>', back: '<path d="m15 18-6-6 6-6"/>', next: '<path d="m9 18 6-6-6-6"/>',
   plus: '<path d="M5 12h14"/><path d="M12 5v14"/>', minus: '<path d="M5 12h14"/>',
+  msg: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   talk: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   down: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/>',
   wifioff: '<path d="M12 20h.01"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/><path d="M5 12.859a10 10 0 0 1 5.17-2.69"/><path d="M19 12.859a10 10 0 0 0-2.007-1.523"/><path d="M2 8.82a15 15 0 0 1 4.177-2.643"/><path d="M22 8.82a15 15 0 0 0-11.288-3.764"/><path d="m2 2 20 20"/>',
@@ -363,6 +364,8 @@ function topBar() {
   if (!S.sess) return '';
   var st = !S.online ? ['wifioff', 'Offline'] : (S.queue.length ? ['sync', 'Sending'] : ['okc', 'Saved']);
   return '<header class="hdr"><div class="cyp-appbar cyp-appbar--fixed"><span class="cyp-appbar__plate"><img src="' + LOGO + '" alt="CYP EAT" width="133" height="28"></span><span class="cyp-appbar__where">' + esc(whereText()) + '</span>' +
+    /* Comment: the only button of the bar, before the sync state, one tap from any page (AppBar, 24/11). More > Comment does the same */
+    '<button class="cyp-appbar__action" data-a="comment" aria-label="Comment">' + ic('msg') + '</button>' +
     (S.cfg ? '<span class="cyp-appbar__sync" role="status">' + ic(st[0]) + st[1] + '</span>' : '') + '</div>' + (WIDE.matches && hasNav() ? navBar(true) : '') + (S.scr === 'overview' && S.ovOn ? chapterNav() : '') +
     (S.cfg && !S.online ? banner('warn', 'No internet. Saved on this ' + deviceWord() + '. It will send by itself.' + (S.queue.length ? ' ' + S.queue.length + ' to send.' : '')) : '') + '</header>';
 }
@@ -402,9 +405,9 @@ function render() {
   var y = window.scrollY, same = S.shown === scr;
   app.className = tabs ? 'cyp-has-tabbar' : '';
   app.innerHTML = h;
-  /* a place too long for the bar leaves it: the first line of the page carries it */
+  /* a place too long for the bar is cut short there (AppBar): the first line of the page carries it in full */
   var w = app.querySelector('.cyp-appbar__where');
-  if (w && w.offsetHeight > 2 * parseFloat(getComputedStyle(w).lineHeight) + 1) { w.hidden = true; app.querySelector('main').insertAdjacentHTML('afterbegin', '<p class="heading-3 place">' + w.innerHTML + '</p>'); }
+  if (w && w.textContent && w.scrollWidth > w.clientWidth + 1) app.querySelector('main').insertAdjacentHTML('afterbegin', '<p class="heading-3 place">' + w.innerHTML + '</p>');
   /* a new screen starts at the top; the same screen stays where the person is */
   if (S.keepScroll || same) window.scrollTo(0, y); else window.scrollTo(0, 0);
   /* numbers count once, when their page or chapter comes in */
