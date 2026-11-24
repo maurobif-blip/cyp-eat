@@ -312,6 +312,24 @@ function linkRow(icon, head, detail, at, under, cls) {
 function othersOf(db, c, d) { var day = eatPlanDay(db, c, d), o = day && day.o ? day.o : {}, out = []; for (var k in o) if (o[k] > 0) out.push({ name: k, n: o[k] }); return out; }
 function othersWords(db, c, d) { return listWords(othersOf(db, c, d).map(function (x) { return esc(x.name); })); }
 /* the plates of a meal nobody counts: the number of the plan of the week, or the fixed number */
+/* the kitchen staff who ate on a day (beta 1.6): a number or null */
+function staffOf(db, c, d) { var e = eatGet(db, 'staff', c, d, ''); return e ? e.data.n : null; }
+/* who ate the food taken out on a day, in words: counted, from the plan, cooked for other places, kitchen staff */
+function ateWords(db, c, d, u) {
+  var fx = 0, parts = [], cm = eatCentre(db, c), ms = cm ? cm.meals : [];
+  ms.forEach(function (m) { if (eatFixed(db, c, m) != null) { var pf = planOrFixed(db, c, d, m); if (pf[0]) { fx += pf[0]; parts.push(pf[0] + ' ' + (m === 'Dinner' ? 'dinner (sapa)' : m.toLowerCase()) + (pf[1] ? ' in the plan' : '')); } } });
+  if (u.plates - fx > 0) parts.unshift((u.plates - fx) + ' counted');
+  if (u.cooked) parts.push(u.cooked + ' for ' + othersWords(db, c, d));
+  if (u.staff) parts.push(u.staff + ' kitchen staff');
+  return parts.join(' + ');
+}
+/* the leftovers of one food in words: in the unit of use, and in portions of the plan of the day; chicken in pieces */
+function leftWords(db, c, d, it, use, pieces) {
+  if (it.id === 'chk' && pieces != null) return fmt(pieces) + ' pieces';
+  if (use == null) return '';
+  var ps = eatPortionSize(db, c, d, it.id), pz = ps ? Math.round(use / ps) : null;
+  return fmt(use) + ' ' + esc(it.use) + (pz != null && it.id !== 'chk' ? ' = ' + plural(pz, 'portion', 'portions') : '');
+}
 function planOrFixed(db, c, d, m) { var day = eatPlanDay(db, c, d); return day && day.p && day.p[m] != null ? [day.p[m], true] : [eatFixed(db, c, m), false]; }
 function list(rows) { return '<div class="cyp-rows">' + rows + '</div>'; }
 /* one answer out of two or three, all on the screen (Choice). many: several answers can be on. No span inside a label: the stylesheet draws every span as an option */
@@ -648,11 +666,20 @@ SCREENS.people = function () {
       : btn('Finish ' + S.meal.toLowerCase(), 'data-a="finish"', 'primary block', 'check')) +
     (S.f.typing ? card(field('Number of plates in all' + (S.f.grp ? ' for ' + esc(S.f.grp) : ''), 'tn', '<input id="tn" class="cyp-input num" type="number" inputmode="numeric" min="0" value="' + n + '" data-f="tn" data-focus>') + btn('OK', 'data-a="typeOk"')) : btn('Type the number in all', 'data-a="typing"')) +
     '<p class="small muted center">Every change is saved by itself. Press Finish when the meal is over.</p>' +
+    staffCard(db, c) +
     h2('All meals, ' + dayName(S.date)) + list(all) +
     /* at the bottom, in red: the meal was served but nobody counted */
     (st === 'skip' ? '' : (S.f.askSkip ? banner('danger', 'The count of ' + peopleLine(pData()) + ' will be removed.', 'alert') + '<div class="two">' + btn('Keep the count', 'data-a="noCountNo"') + btn('Yes, not counted', 'data-a="noCount"', 'danger') + '</div>'
       : btn('I didn\'t count the people', 'data-a="noCount"', 'no')));
 };
+
+/* the kitchen staff who ate today (beta 1.6, Mauro 24/11: always ask how many eat at the kitchen); they count in the food a plate */
+function staffCard(db, c) {
+  var n = staffOf(db, c, S.date), v = S.f.staffN != null ? S.f.staffN : (n == null ? '' : String(n));
+  return card(h3('Kitchen staff who ate today') + '<p class="small muted">Ask every day how many of the kitchen eat here. They count in the food a plate.</p>' +
+    '<div class="inl"><input id="stn" class="cyp-input num" type="number" inputmode="numeric" min="0" max="200" aria-label="Kitchen staff who ate today" data-f="staffN" value="' + esc(v) + '">' + btn('Save', 'data-a="saveStaff"') + '</div>' +
+    (n == null ? small('Not written yet.') : small('Saved: ' + plural(n, 'person', 'people') + '.')));
+}
 
 /* ---------- daily: the food of the whole day ---------- */
 /* is there still a meal to count today (not finished, not marked "not counted")? */
@@ -714,8 +741,11 @@ SCREENS.today = function () {
   /* the day: plates and the amount a plate */
   var u = eatDayUse(db, c, d), rows = [];
   if (u.closed && u.base) db.items.forEach(function (it) { if (u.used[it.id] == null) return; rows.push([esc(it.name), perTxt(it, eatPerPlate(u, it.id))]); });
+  /* beta 1.6: the food left after the last meal, next to the amount a plate */
+  var lrows = []; if (u.hasAfter) db.items.forEach(function (it) { if (u.left[it.id] == null) return; var lw = leftWords(db, c, d, it, u.left[it.id], it.id === 'chk' ? u.leftPieces : null); if (lw) lrows.push([esc(it.name) + ' left', lw]); });
+  var lexp = u.planned != null && u.base ? u.planned - u.base : null;
   out += card(h3(dayName(d)) +
-    table([[''], ['', 1]], [['Plates', u.plates == null ? tag('', 'People: to do') : u.plates + (u.peopleMissing ? ' (' + plural(u.peopleMissing, 'meal', 'meals') + ' not counted)' : '')]].concat(u.cooked ? [['Cooked for ' + othersWords(db, c, d), u.cooked]] : []).concat(rows)) +
+    table([[''], ['', 1]], [['Plates', u.plates == null ? tag('', 'People: to do') : u.plates + (u.peopleMissing ? ' (' + plural(u.peopleMissing, 'meal', 'meals') + ' not counted)' : '')]].concat(u.cooked ? [['Cooked for ' + othersWords(db, c, d), u.cooked]] : []).concat([['Kitchen staff', u.staff == null ? tag('', 'To write in People') : u.staff]]).concat(rows).concat(lrows).concat(lexp != null && lrows.length && lexp >= 0 ? [['Should be left (plan − ate)', plural(lexp, 'portion', 'portions')]] : [])) +
     (!rows.length && !u.skipped ? small(u.hasBefore ? (u.closed ? 'Count the people to see the amount a plate.' : 'After the leftovers: the amount a plate.') : 'After the quantities for today: the amount a plate.') : ''), 'data-day');
   return out;
 };
@@ -791,7 +821,7 @@ SCREENS.before = function () {
 SCREENS.after = function () {
   var db = view(), b = eatGet(db, 'dbefore', S.sess.centre, S.date, '');
   if (!b) return backLink() + title('Leftovers') + dayTitle() + skipNote('after') + '<p>First save the quantities for today.</p>' + btn('Quantities for today', 'data-a="go" data-to="before"', 'primary block') + skipBtn('after');
-  return backLink() + title('Leftovers') + dayTitle() + skipNote('after') + (eatDinLeft(db, S.sess.centre) ? '<p>What is left after lunch, in portions: it is the food of the dinner (sapa). The app turns the portions into kg. A chicken is cut in 10 portions.</p>' : '') + (eatDinLeft(db, S.sess.centre) ? '' : '<p>What is left at the end of the day, after the last meal, in portions: the app turns them into kg. A chicken is cut in 10 portions.</p>') +
+  return backLink() + title('Leftovers') + dayTitle() + skipNote('after') + (eatDinLeft(db, S.sess.centre) ? '<p>What is left after lunch, in portions: it is the food of the dinner (sapa). The app turns the portions into kg. A chicken is cut in 10 portions.</p>' : (fixedMeals().indexOf('Dinner') >= 0 ? '<p>What is left <strong>after lunch</strong>: the food not served, to keep for another day. The dinner (sapa) is not counted: the app takes the people of the plan of the week. Write the leftovers in portions: the app turns them into kg. A chicken is cut in 10 portions.</p>' : '<p>What is left at the end of the day, <strong>after the last meal</strong>: the food not served, to keep for another day. Write it in portions: the app turns them into kg. A chicken is cut in 10 portions.</p>')) +
     card(foodRowsHtml(S.f, true)) +
     '<div class="cyp-card" id="bal">' + balanceHtml() + '</div>' +
     btn('Save', 'data-a="saveAfter"', 'primary block') + skipBtn('after');
@@ -810,11 +840,16 @@ function balanceHtml() {
     var usedU = tb && ta && tb.unit != null && ta.unit != null ? Math.max(0, Math.round((tb.unit - ta.unit) * 1000) / 1000) : null;
     var pt = perTxt(it, used != null && base ? used / base : null);
     if (id === 'chk' && base) { var pc = b.data.q.pcs, pnc = b.data.nc && b.data.nc.pcs, pb = f.nc.pcs ? null : (au === 'portion' ? back : eatNum(f.q.pcs)); if (pc != null && !pnc && !f.nc.pcs) pt = fmt(Math.max(0, pc - (pb || 0)) / base) + ' pieces a plate'; }
-    rows.push([esc(it.name), used == null && usedU == null ? 'Not counted' : (usedU != null && it.unit !== it.use ? fmt(usedU) + ' ' + esc(it.unit) + (used != null ? ' = ' : '') : '') + (used != null ? fmt(used) + ' ' + esc(it.use) : ''), pt]);
+    var lw = f.nc[id] ? 'Not counted' : leftWords(db, c, S.date, it, ta ? ta.use : null, id === 'chk' ? pb0(f, b, au, back) : null);
+    rows.push([esc(it.name), used == null && usedU == null ? 'Not counted' : (usedU != null && it.unit !== it.use ? fmt(usedU) + ' ' + esc(it.unit) + (used != null ? ' = ' : '') : '') + (used != null ? fmt(used) + ' ' + esc(it.use) : ''), pt, lw]);
   });
-  return h3('Balance of the day') + table([['Item'], ['Used'], ['A plate', 1]], rows) +
-    small(base ? base + ' plates for this food' + (u.cooked || u.onLeft ? ' (' + (u.plates - (u.onLeft || 0)) + ' here' + (u.cooked ? ', ' + u.cooked + ' cooked for ' + othersWords(db, S.sess.centre, S.date) : '') + ')' : '') + (u.onLeft ? '; the dinner (' + u.onLeft + ') eats the leftovers' : '') + (u.peopleMissing ? ' (' + plural(u.peopleMissing, 'meal', 'meals') + ' not counted)' : '') : 'Count the people of today to see the amount a plate.');
+  /* the two sums of Mauro (24/11): the amount a plate for who ate, and the food left; planned minus who ate = the portions that should be left */
+  var exp = u.planned != null && base ? u.planned - base : null;
+  return h3('Balance of the day') + table([['Item'], ['Used'], ['A plate'], ['Left', 1]], rows) +
+    small(base ? plural(base, 'plate', 'plates') + ' ate this food: ' + ateWords(db, c, S.date, u) + (u.onLeft ? '; the dinner (' + u.onLeft + ') eats the leftovers' : '') + (u.peopleMissing ? ' (' + plural(u.peopleMissing, 'meal', 'meals') + ' not counted)' : '') + (u.staff == null ? '. Kitchen staff: not written (People).' : '.') : 'Count the people of today to see the amount a plate.') +
+    (exp != null ? small('Plan of the day: ' + plural(u.planned, 'person', 'people') + '. ' + u.planned + ' − ' + base + ' = ' + (exp >= 0 ? plural(exp, 'portion', 'portions') + ' should be left.' : (-exp) + ' more people ate than planned.')) : '');
 }
+function pb0(f, b, au, back) { if (f.nc.pcs) return null; return au === 'portion' ? back : eatNum(f.q.pcs); }
 /* ---------- delivery notes: one person copies the Self Reliance notes once a week ---------- */
 function noteItems(db, q) { var p = []; db.items.forEach(function (it) { if (q[it.id] != null) p.push(it.name + ' ' + fmt(q[it.id]) + ' ' + it.unit); }); return p.join(' · '); }
 function gapsText(gaps) { return gaps.map(function (g) { return g.from === g.to ? g.from : g.from + '–' + g.to; }).join(', '); }
@@ -1329,7 +1364,7 @@ function checkCard(db, c, wide) {
 /* settings: the counts of one day at one centre are taken out (a day counted to try the app, or counted on the wrong day).
    What is saved on that day is shown first; the overview ticks what goes and confirms in a window. The delivery notes are never touched. */
 var RMG = [
-  ['people', 'Plates', ['people'], 'people'],
+  ['people', 'Plates and kitchen staff', ['people', 'staff'], 'people'],
   ['menu', 'Menu', ['dmenu', 'menu'], 'food'],
   ['before', 'Quantities', ['dbefore', 'before'], 'scale'],
   ['after', 'Leftovers', ['dafter', 'after'], 'box'],
@@ -1915,6 +1950,7 @@ A.fixSave = function (el) {
   if (!isFinite(n) || n < 0 || n > 5000) { S.notice = 'Write a number of plates, or leave it empty.'; return render(); }
   queue({ kind: 'centre_fixed', cid: c.id, meal: m, n: n || '' }); delete S.f[k]; S.notice = ''; S.good = shown(c.name) + ', ' + m + ': ' + (n ? 'always ' + n + ' plates, not counted.' : 'counted by tapping.'); S.keepScroll = true; render();
 };
+A.saveStaff = function () { var v = eatNum(S.f.staffN); if (v == null || v < 0 || v > 200) { S.msg = 'Write a number from 0 to 200.'; render(); return; } queue({ kind: 'entry', e: { type: 'staff', centre: S.sess.centre, date: S.date, meal: '', data: { n: Math.round(v) }, by: S.sess.nid || '', byName: myName() || 'Overview', at: nowIso() } }); S.f.staffN = null; S.keepScroll = true; render(); };
 A.cdinleft = function (el) { var c = eatCentre(view(), el.getAttribute('data-id')); queue({ kind: 'centre_dinleft', cid: c.id, on: !eatDinLeft(view(), c.id) }); S.keepScroll = true; render(); };
 A.cleft = function (el) { var c = eatCentre(view(), el.getAttribute('data-id')); queue({ kind: 'centre_left', cid: c.id, on: !c.left }); S.keepScroll = true; render(); };
 A.cmeal = function (el) {
@@ -2044,6 +2080,7 @@ function exportXlsx() {
   var end = { name: 'Stock counts', head: ['Date', 'Day', 'Centre', 'Count', 'Item', 'Expected', 'Counted', 'Difference', 'Unit', 'By'], rows: [] };
   var seen = {}, fxDay = {};
   E.forEach(function (e) { if (e.type !== 'people' || fxDay[e.centre + e.date]) return; fxDay[e.centre + e.date] = 1; var cc = eatCentre(db, e.centre); (cc ? cc.meals : []).forEach(function (m) { var fx = eatFixed(db, e.centre, m); if (fx != null) people.rows.push([e.date, WD[eatWeekday(e.date)], shown(cc.name), m, fx, '', 'Fixed number, not counted', '', '']); }); });
+  E.forEach(function (e) { if (e.type === 'staff') people.rows.push([e.date, WD[eatWeekday(e.date)], centreName(e.centre), 'Kitchen staff', e.data.n, '', '', e.byName || '', e.at || '']); });
   E.forEach(function (e) {
     var c = centreName(e.centre);
     if (e.type === 'people' && eatFixed(db, e.centre, e.meal) == null) people.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, e.data.skip ? '' : eatPlates(e), e.data.g ? e.data.n + ' ' + c + Object.keys(e.data.g).map(function (k) { return ', ' + e.data.g[k] + ' ' + k; }).join('') : '', e.data.skip ? 'People not counted' : (e.data.done ? 'Yes' : 'Counting'), e.byName, localTime(e.saved)]);

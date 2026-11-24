@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'beta 1.5';
+var EAT_VERSION = 'beta 1.6';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 /* the meals a centre can have now (20/11: breakfast is left out for now; old breakfast counts are still read) */
 var EAT_MEALS_ON = ['Lunch', 'Dinner'];
@@ -9,7 +9,7 @@ var EAT_ROLES = ['Volunteer', 'Canteen', 'Educator'];
 var EAT_MODES = ['entry', 'delivery', 'admin'];
 /* how the store can count a food: in its own unit (kg, chickens, eggs…) or in a container, with how much one container holds */
 var EAT_PACKS = ['bags', 'trays', 'cans', 'packs', 'pieces'];
-var EAT_TYPES = ['people', 'menu', 'before', 'after', 'skip', 'received', 'endweek', 'note', 'startweek', 'dmenu', 'dbefore', 'dafter', 'dskip', 'plan'];
+var EAT_TYPES = ['people', 'menu', 'before', 'after', 'skip', 'received', 'endweek', 'note', 'startweek', 'dmenu', 'dbefore', 'dafter', 'dskip', 'plan', 'staff'];
 /* the food is counted for the whole day: dmenu (all meals at once), dbefore (quantities for today), dafter (left at the end of the day), dskip.
    The old types menu, before, after, skip (one meal) are still read. */
 /* protein of the day on the weekly canteen sheet: Sun..Sat */
@@ -160,9 +160,10 @@ function eatPortionSize(db, centre, date, id) {
   var use = it.unit === it.use ? q : (it.per > 0 ? q * it.per : null);
   return t && use != null ? Math.round(use / t * 1000) / 1000 : null;
 }
-/* Minsundu (Giovanni and Mauro, 24/11): the sapa is cooked with the leftovers of lunch and nobody counts it; the leftovers are written after lunch.
-   A centre setting; at Minsundu it is on until the overview turns it off */
-function eatDinLeft(db, centre) { var c = eatCentre(db, centre); if (!c || c.meals.indexOf('Dinner') < 0) return false; return typeof c.dinLeft === 'boolean' ? c.dinLeft : c.id === 'MIN'; }
+/* A centre setting (beta 1.5): the dinner is cooked with the leftovers of lunch and its food is not in the food used.
+   Off everywhere since beta 1.6 (comment of Mauro, 24/11 17:14): the sapa eats the food taken out like lunch, and the leftovers
+   are the food not served after the last meal, to keep for another day. The overview can still turn it on for a centre. */
+function eatDinLeft(db, centre) { var c = eatCentre(db, centre); if (!c || c.meals.indexOf('Dinner') < 0) return false; return c.dinLeft === true; }
 function eatPlanOthers(day) { var t = 0; if (day && day.o) for (var k in day.o) t += day.o[k] || 0; return t; }
 /* what the photo reader read on a plan, made into the data of a plan entry: kitchen, Monday of the week, days */
 function eatPlanRead(db, r) {
@@ -226,7 +227,7 @@ function eatLaterMeal(db, centre, meal) {
 
 /* what one meal used. used[item] is in "use" units, usedU[item] in store units; null = not counted or size not set. */
 function eatMealUse(db, centre, date, meal) {
-  var out = { skipped: false, hasBefore: false, hasAfter: false, used: {}, usedU: {}, pieces: null, plates: null, kept: null, base: null };
+  var out = { skipped: false, hasBefore: false, hasAfter: false, used: {}, usedU: {}, pieces: null, plates: null, kept: null, base: null, left: {}, leftU: {}, leftPieces: null };
   var p = eatGet(db, 'people', centre, date, meal); if (p) out.plates = eatPlates(p);
   var sk = eatGet(db, 'skip', centre, date, meal);
   if (sk && sk.data.on) { out.skipped = true; return out; }
@@ -242,8 +243,10 @@ function eatMealUse(db, centre, date, meal) {
     var tb = eatConv(it, bq[id], bu[id]), ta = eatConv(it, a && aq[id] != null ? aq[id] : 0, au[id] || bu[id]);
     out.used[id] = tb.use == null || ta.use == null ? null : r3(tb.use - ta.use);
     out.usedU[id] = tb.unit == null || ta.unit == null ? null : r3(tb.unit - ta.unit);
+    if (a) { out.left[id] = ta.use == null ? null : r3(ta.use); out.leftU[id] = ta.unit == null ? null : r3(ta.unit); }
   }
   for (id in bnc) if (bnc[id] && id !== 'pcs') { out.used[id] = null; out.usedU[id] = null; }
+  if (a && aq.pcs != null && !anc.pcs) out.leftPieces = aq.pcs;
   if (bq.pcs != null && !bnc.pcs) out.pieces = Math.max(0, bq.pcs - (a && aq.pcs != null && !anc.pcs ? aq.pcs : 0));
   if (a && a.data.kept != null && !a.data.keptNc) out.kept = a.data.kept;
   if (out.plates != null) out.base = out.plates + (out.kept || 0);
@@ -283,7 +286,12 @@ function eatDayUse(db, centre, date) {
     if (meals[i] === 'Dinner' && fx != null && eatDinLeft(db, centre)) out.onLeft = fx;
   }
   out.cooked = eatPlanOthers(pday);
-  out.base = out.plates == null ? null : out.plates + out.cooked - (out.onLeft || 0);
+  /* the kitchen staff who ate (beta 1.6, Mauro 24/11: always ask how many eat at the kitchen) */
+  var st = eatGet(db, 'staff', centre, date, ''); out.staff = st ? st.data.n : null;
+  out.base = out.plates == null ? null : out.plates + out.cooked + (out.staff || 0) - (out.onLeft || 0);
+  /* the people of the plan of the day (meals and other places): planned minus who ate = the portions that should be left */
+  if (pday) { var pt0 = 0, anyp = false, pk; for (pk in (pday.p || {})) { pt0 += pday.p[pk] || 0; anyp = true; } for (pk in (pday.o || {})) { pt0 += pday.o[pk] || 0; anyp = true; } out.planned = anyp ? pt0 : null; } else out.planned = null;
+  out.left = {}; out.leftU = {}; out.leftPieces = null;
   var sk = eatGet(db, 'dskip', centre, date, '');
   if (sk && sk.data.on) { out.skipped = true; return out; }
   var b = eatGet(db, 'dbefore', centre, date, ''), a = eatGet(db, 'dafter', centre, date, ''), left = eatLeft(db, centre);
@@ -300,8 +308,10 @@ function eatDayUse(db, centre, date) {
     var tb = eatConv(it, bq[id], bu[id]), ta = eatConv(it, a && aq[id] != null ? aq[id] : 0, au[id] || bu[id]);
     out.used[id] = tb.use == null || ta.use == null ? null : r3(tb.use - ta.use);
     out.usedU[id] = tb.unit == null || ta.unit == null ? null : r3(tb.unit - ta.unit);
+    if (a) { out.left[id] = ta.use == null ? null : r3(ta.use); out.leftU[id] = ta.unit == null ? null : r3(ta.unit); }
   }
   for (id in bnc) if (bnc[id] && id !== 'pcs') { out.used[id] = null; out.usedU[id] = null; }
+  if (a && aq.pcs != null && !anc.pcs) out.leftPieces = aq.pcs;
   if (bq.pcs != null && !bnc.pcs) out.pieces = Math.max(0, bq.pcs - (a && aq.pcs != null && !anc.pcs ? aq.pcs : 0));
   return out;
 }
@@ -475,7 +485,7 @@ function eatApply(db, mode, op, nowIso, info) {
     if (e.date > (e.type === 'plan' ? eatAddDays(eatToday(nowIso), 7) : eatToday(nowIso))) return { ok: false, error: 'future' };
     var meal = e.meal || '';
     if (['people', 'menu', 'before', 'after', 'skip'].indexOf(e.type) >= 0 && EAT_MEALS.indexOf(meal) < 0) return { ok: false, error: 'meal' };
-    if (['received', 'endweek', 'note', 'startweek', 'dmenu', 'dbefore', 'dafter', 'dskip', 'plan'].indexOf(e.type) >= 0) meal = '';
+    if (['received', 'endweek', 'note', 'startweek', 'dmenu', 'dbefore', 'dafter', 'dskip', 'plan', 'staff'].indexOf(e.type) >= 0) meal = '';
     var key = eatKey(e.type, e.centre, e.date, meal);
     /* a delivery note is one paper note: its number is the key, whatever the centre or the date */
     if (e.type === 'note') { var no = eatNoteNo((e.data || {}).no); if (!no) return { ok: false, error: 'note_no' }; key = 'note|' + no; }
@@ -685,6 +695,7 @@ function eatClean(db, type, d) {
     return { meals: ms, cook: eatText(d.cook, 60) };
   }
   if (type === 'received') return { q: qs(d.q) };
+  if (type === 'staff') return { n: Math.max(0, Math.min(200, Math.round(Number(d.n) || 0))) };
   if (type === 'plan') {
     var pnum = function (x) { var v = Math.round(Number(x)); return x === '' || x == null || !isFinite(v) || v < 0 ? null : Math.min(5000, v); }, days = {};
     for (var wd = 0; wd < 7; wd++) {
