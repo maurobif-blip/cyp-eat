@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'beta 1.6';
+var EAT_VERSION = 'beta 1.7';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 /* the meals a centre can have now (20/11: breakfast is left out for now; old breakfast counts are still read) */
 var EAT_MEALS_ON = ['Lunch', 'Dinner'];
@@ -284,6 +284,7 @@ function eatDayUse(db, centre, date) {
     if (fx != null) out.plates = (out.plates || 0) + fx; else if (p && !p.data.skip) out.plates = (out.plates || 0) + eatPlates(p); else { out.peopleMissing++; if (p) out.peopleSkipped = (out.peopleSkipped || 0) + 1; }
     /* the dinner cooked with the leftovers of lunch (Minsundu, 24/11): its plates are served, but its food is in the leftovers, not in the food used */
     if (meals[i] === 'Dinner' && fx != null && eatDinLeft(db, centre)) out.onLeft = fx;
+    else if (meals[i] === 'Dinner' && fx != null) out.dinner = fx;
   }
   out.cooked = eatPlanOthers(pday);
   /* the kitchen staff who ate (beta 1.6, Mauro 24/11: always ask how many eat at the kitchen) */
@@ -301,6 +302,26 @@ function eatDayUse(db, centre, date) {
   if (!left) a = null;
   var bq = b.data.q || {}, bnc = b.data.nc || {}, bu = b.data.u || {}, aq = a ? (a.data.q || {}) : {}, anc = a ? (a.data.nc || {}) : {}, au = a ? (a.data.u || {}) : {};
   function r3(x) { return x == null ? null : Math.max(0, Math.round(x * 1000) / 1000); }
+  /* beta 1.7 (Daniela, 26/11): the leftovers are the portions remained, not the food. All the food taken out made the portions served
+     plus the portions remained, so a portion = food taken out / all the portions, and the leftovers = portions left x a portion.
+     At Minsundu the portions remained after lunch feed the dinner of the plan first; what is beyond is left for another day. */
+  if (a && a.data.pr != null) {
+    var pr = a.data.pr, din = out.dinner || 0, dinEat = Math.min(din, pr);
+    out.remained = pr; out.dinnerShort = din > pr ? din - pr : 0; out.leftPortions = pr - dinEat;
+    if (out.base != null) { out.base = out.base - din + dinEat; out.plates = out.plates - din + dinEat; }
+    var tot = out.base == null ? null : out.base + out.leftPortions;
+    out.portions = tot;
+    for (var pid in bq) {
+      if (pid === 'pcs') continue;
+      var pit = eatItem(db, pid);
+      if (!pit || bnc[pid] || bq[pid] == null || !tot) { out.used[pid] = null; out.usedU[pid] = null; continue; }
+      var ptb = eatConv(pit, bq[pid], bu[pid]), sh = out.leftPortions / tot;
+      out.left[pid] = ptb.use == null ? null : r3(ptb.use * sh); out.leftU[pid] = ptb.unit == null ? null : r3(ptb.unit * sh);
+      out.used[pid] = ptb.use == null ? null : r3(ptb.use * (1 - sh)); out.usedU[pid] = ptb.unit == null ? null : r3(ptb.unit * (1 - sh));
+    }
+    if (bq.pcs != null && !bnc.pcs && tot) { out.leftPieces = Math.round(bq.pcs * out.leftPortions / tot * 10) / 10; out.pieces = bq.pcs - out.leftPieces; }
+    return out;
+  }
   for (var id in bq) {
     if (id === 'pcs') continue;
     var it = eatItem(db, id);
@@ -507,6 +528,17 @@ function eatApply(db, mode, op, nowIso, info) {
     info.audit.push({ time: nowIso, who: cm.byName, action: 'Comment', detail: cm.screen + ': ' + cm.text.slice(0, 80) });
     return { ok: true };
   }
+  /* beta 1.7 (Daniela, 26/11: "put option to undo the data entered during the day"): who counts can take out what was written
+     today at a centre (portions, kitchen staff, menu, quantities, leftovers, marks). Only today; the stock count and the notes stay.
+     Like day_clean, nothing is erased from the file. */
+  if (k === 'day_undo') {
+    if (mode !== 'entry' && mode !== 'admin') return { ok: false, error: 'rights' };
+    var uc = eatCentre(db, op.centre); if (!uc || uc.place || op.date !== eatToday(nowIso)) return { ok: false, error: 'fields' };
+    var ut = ['people', 'staff', 'dmenu', 'dbefore', 'dafter', 'dskip'], ugone = [];
+    for (i = 0; i < db.entries.length; i++) { var ue = db.entries[i]; if (ue.del || ue.centre !== op.centre || ue.date !== op.date || ut.indexOf(ue.type) < 0) continue; ue.del = true; bump(ue); ugone.push(ue); }
+    if (ugone.length) { info.gone = (info.gone || []).concat(ugone); info.audit.push({ time: nowIso, who: eatText(op.byName, 60) || 'Enter data', action: 'Day undone', detail: uc.name + ' ' + op.date + ': ' + ugone.length + ' entries' }); }
+    return { ok: true, removed: ugone.length };
+  }
   if (!admin()) return { ok: false, error: 'rights' };
   /* before the real use starts: what was written while trying the app is taken out (people, menus, quantities, leftovers,
      stock counts, marks). The delivery notes stay: they are real paper notes. Nothing is erased from the file: the entries
@@ -680,8 +712,10 @@ function eatClean(db, type, d) {
   if (type === 'before' || type === 'after') { var o = { q: qs(d.q), nc: ncs(d.nc), u: us(d.u) }; if (type === 'after') { o.kept = eatNum(d.kept); o.keptNc = !!d.keptNc; } return o; }
   /* on: the food of the whole day not counted (old button). menu, before, after: that step alone is marked as not done,
      and anyone can still fill it in later; a step that is filled in counts, whatever the mark says */
-  if (type === 'skip' || type === 'dskip') { var so = { on: !!d.on }; if (type === 'dskip') { if (d.menu) so.menu = true; if (d.before) so.before = true; if (d.after) so.after = true; } return so; }
+  if (type === 'skip' || type === 'dskip') { var so = { on: !!d.on }; if (type === 'dskip') { if (d.menu) so.menu = true; if (d.before) so.before = true; if (d.after) so.after = true; if (d.on && d.absent) so.absent = true; } return so; }
   /* leftovers written in portions (beta 1.4): pz = the portions written, ps = the size of one portion used; q is already in the unit of the item */
+  /* beta 1.7 (Daniela, 26/11): the leftovers are one number, the portions remained */
+  if (type === 'dafter' && d.pr != null) return { pr: Math.max(0, Math.min(5000, Math.round(Number(d.pr) || 0))), q: {}, nc: {}, u: {} };
   if (type === 'dafter' && (d.pz || d.ps)) return { q: qs(d.q), nc: ncs(d.nc), u: us(d.u), pz: qs(d.pz), ps: qs(d.ps) };
   if (type === 'dbefore' || type === 'dafter') return { q: qs(d.q), nc: ncs(d.nc), u: us(d.u) };
   if (type === 'dmenu') {
