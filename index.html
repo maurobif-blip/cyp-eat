@@ -755,7 +755,7 @@ SCREENS.today = function () {
   if (sk && sk.data.on) out += banner('danger', 'Food not counted on ' + dayName(d) + '. People are counted.') + btn('Undo', 'data-a="skip" data-on="0"') + list(pStep);
   else out += list(
     stepRow('1', 'What do we eat today?', noMenu ? 'Menu not written. It can still be added.' : esc(dayMenuText(db, dm)) + (dm.saved ? '' : ' (plan)') + (dm.cook ? ' · Cook: ' + esc(dm.cook) : ''), 'menu', state(dm.saved, noMenu)) +
-    stepRow('2', 'Quantities for today', b ? esc(qtyLine(db, b.data.q, b.data.u)) : (noBefore ? 'Quantities not counted. They can still be added.' : 'Food taken out of the store and the cold room for the meals of today'), 'before', state(b, noBefore)) +
+    stepRow('2', 'Quantities for today', b ? esc(qtyLine(db, b.data.q, b.data.u)) + (b.data.pc != null ? ' · ' + plural(b.data.pc, 'portion', 'portions') + ' cooked' : '') : (noBefore ? 'Quantities not counted. They can still be added.' : 'Food taken out of the store and the cold room for the meals of today'), 'before', state(b, noBefore)) +
     pStep +
     (left ? stepRow('4', 'Leftovers', a ? 'Saved' : (noAfter ? 'Leftovers not counted. They can still be added.' : 'After the count: what is left at the end of the day'), 'after', state(a, noAfter)) : ''));
   /* the day: plates and the amount a plate */
@@ -764,6 +764,9 @@ SCREENS.today = function () {
   /* beta 1.6: the food left after the last meal, next to the amount a plate */
   var lrows = []; if (u.remained != null) { lrows.push(['Portions remained', u.remained]); if (u.dinner != null) lrows.push(['Dinner (sapa)', Math.min(u.dinner, u.remained) + (u.dinnerShort ? ' (' + u.dinnerShort + ' missing)' : '')]); lrows.push(['Left for another day', plural(u.leftPortions, 'portion', 'portions')]); }
   if (u.hasAfter) db.items.forEach(function (it) { if (u.left[it.id] == null) return; var lw = leftWords(db, c, d, it, u.left[it.id], it.id === 'chk' ? u.leftPieces : null); if (lw) lrows.push([esc(it.name) + ' left', lw]); });
+  /* beta 1.9: the portions cooked against the portions eaten and left */
+  if (u.cookedP != null) { var pp9 = planPortions(db, c, d); lrows.unshift(['Portions cooked', u.cookedP + (pp9 && pp9.tot !== u.cookedP ? ' (menu of the week ' + pp9.tot + (u.cookedWhy ? ': ' + esc(u.cookedWhy) : '') + ')' : '')]);
+    if (u.remained != null && u.base != null) { var na = u.cookedP - u.base - u.leftPortions; lrows.push(['Not accounted (cooked − eaten − left)', na ? tag(na > 0 ? 'warn' : '', plural(na, 'portion', 'portions')) : tag('ok', '0')]); } }
   var lexp = u.remained != null ? null : (u.planned != null && u.base ? u.planned - u.base : null);
   out += card(h3(dayName(d)) +
     table([[''], ['', 1]], [['Portions', u.plates == null ? tag('', 'Portions: to do') : u.plates + (u.peopleMissing ? ' (' + plural(u.peopleMissing, 'meal', 'meals') + ' not counted)' : '')]].concat(u.cooked ? [['Cooked for ' + othersWords(db, c, d), u.cooked]] : []).concat([['Kitchen staff', u.staff == null ? tag('', 'To write in Portions') : u.staff]]).concat(rows).concat(lrows).concat(lexp != null && lrows.length && lexp >= 0 ? [['Should be left (plan − ate)', plural(lexp, 'portion', 'portions')]] : [])) +
@@ -783,7 +786,7 @@ function qRow(key, label, unit, val, nc, step, tog) {
     '<div class="cyp-stepper"><button class="cyp-btn" data-a="step" data-k="' + key + '" data-s="-' + step + '" aria-label="Less"' + dis + '>' + ic('minus') + '</button>' +
     '<input id="q_' + key + '" type="text" inputmode="decimal" autocomplete="off" placeholder="0" value="' + (nc || val == null ? '' : esc(String(val))) + '" data-q="' + key + '"' + dis + '>' +
     '<button class="cyp-btn cyp-btn--primary" data-a="step" data-k="' + key + '" data-s="' + step + '" aria-label="More"' + dis + '>' + ic('plus') + '</button></div>' +
-    (key === 'pcs' || key === 'pr' || nc || (S.f.u && S.f.u[key] === 'portion') || (S.f.cu && S.f.cu[key] === 'pieces') ? '' : '<div class="four">' + [[0, '0'], [0.25, '¼'], [0.5, '½'], [0.75, '¾']].map(function (x) { return btn(x[0] ? '+' + x[1] : '.0', 'data-a="frac" data-k="' + key + '" data-v="' + x[0] + '" aria-label="' + (x[0] ? 'And ' + x[1] : 'Whole number') + '"'); }).join('') + '</div>') +
+    (key === 'pcs' || key === 'pr' || key === 'pc' || nc || (S.f.u && S.f.u[key] === 'portion') || (S.f.cu && S.f.cu[key] === 'pieces') ? '' : '<div class="four">' + [[0, '0'], [0.25, '¼'], [0.5, '½'], [0.75, '¾']].map(function (x) { return btn(x[0] ? '+' + x[1] : '.0', 'data-a="frac" data-k="' + key + '" data-v="' + x[0] + '" aria-label="' + (x[0] ? 'And ' + x[1] : 'Whole number') + '"'); }).join('') + '</div>') +
     (nc === undefined ? '' : choice('', [{ l: 'Not counted', on: !!nc, at: 'data-a="nc" data-k="' + key + '"' }], { many: true, aria: label + ': not counted' })) + (tog || '') + '</div>';
 }
 /* halves and quarters for what is weighed or comes in bags and trays; whole numbers for chickens, eggs, loaves */
@@ -838,6 +841,7 @@ SCREENS.before = function () {
   var db = view(), f = S.f, more = db.items.filter(function (it) { return f.rows.indexOf(it.id) < 0; });
   return backLink() + title('Quantities for today') + dayTitle() + skipNote('before') + '<p>Write the food taken out of the store and the cold room for the meals of today, in kg, bags or trays. A half or a quarter: tap ½ or ¼, or write 0.5 or 0.25.</p>' +
     (othersOf(db, S.sess.centre, S.date).length ? banner('', 'Write all the food taken out today, also the food cooked here for ' + othersWords(db, S.sess.centre, S.date) + '.') : '') +
+    cookedCard(db) +
     card(f.rows.length ? foodRowsHtml(f, false) : '<p class="muted">No food on the menu.</p>') +
     (more.length ? card(h3('Add another food') + '<div class="wrap">' + more.map(function (it) { return btn('+ ' + esc(it.name), 'data-a="addRow" data-id="' + it.id + '"'); }).join('') + '</div>') : '') +
     btn(peopleOpen() ? 'Save and count the portions' : 'Save', 'data-a="saveBefore"', 'primary block') + skipBtn('before');
@@ -891,6 +895,29 @@ function balanceHtml() {
     small(u.portions ? plural(u.portions, 'portion', 'portions') + ' cooked: ' + plural(u.base, 'portion', 'portions') + ' eaten (' + ateWords(db, c, S.date, u) + ') + ' + plural(u.leftPortions, 'portion', 'portions') + ' left.' + (u.staff == null ? ' Kitchen staff: not written (Portions).' : '') : 'Count the portions served today to see the food a portion.');
 }
 function pb0(f, b, au, back) { if (f.nc.pcs) return null; return au === 'portion' ? back : eatNum(f.q.pcs); }
+
+/* beta 1.9 (Mauro, 26/11): the portions cooked today, when the quantities are not known (fish without a scale) and as a check against the
+   menu of the week: all its meals (dinner too) and the places cooked for here (Ukubalula). More or fewer than the plan: the cook writes why */
+function planPortions(db, c, d) {
+  var pd = eatPlanDay(db, c, d); if (!pd) return null;
+  var tot = 0, w = [], k; for (k in (pd.p || {})) if (pd.p[k]) { tot += pd.p[k]; w.push(pd.p[k] + ' ' + (k === 'Dinner' ? 'dinner (sapa)' : k.toLowerCase())); }
+  for (k in (pd.o || {})) if (pd.o[k]) { tot += pd.o[k]; w.push(pd.o[k] + ' for ' + shown(k)); }
+  return tot ? { tot: tot, words: w.join(' + ') } : null;
+}
+function cookedCard(db) {
+  return card(h3('Portions cooked today') + '<p class="small muted">All the portions cooked for today: every meal and every place the kitchen cooks for.</p>' +
+    qRow('pc', 'Portions cooked', 'portions', S.f.q.pc, undefined, 1) + '<div id="pcm">' + cookedMatch(db) + '</div>');
+}
+function cookedMatch(db) {
+  var pp = planPortions(db, S.sess.centre, S.date), n = eatNum(S.f.q.pc);
+  if (!pp) return small('No menu of the week for today: nothing to compare with.');
+  var line = 'Menu of the week: ' + plural(pp.tot, 'portion', 'portions') + ' (' + esc(pp.words) + ').';
+  if (n == null) return small(line);
+  var d = Math.round(n) - pp.tot;
+  if (!d) return small(line) + '<p>' + tag('ok', 'Matches the menu of the week') + '</p>';
+  return small(line) + '<p>' + tag('warn', Math.abs(d) + (d > 0 ? ' more' : ' fewer') + ' than the menu of the week') + '</p>' +
+    field(d > 0 ? 'Why more portions than the menu of the week?' : 'Why fewer portions than the menu of the week?', 'pcw', '<input id="pcw" class="cyp-input" type="text" maxlength="300" data-f="pcw" value="' + esc(S.f.pcw || '') + '">');
+}
 /* ---------- delivery notes: one person copies the Self Reliance notes once a week ---------- */
 function noteItems(db, q) { var p = []; db.items.forEach(function (it) { if (q[it.id] != null) p.push(it.name + ' ' + fmt(q[it.id]) + ' ' + it.unit); }); return p.join(' · '); }
 function gapsText(gaps) { return gaps.map(function (g) { return g.from === g.to ? g.from : g.from + '–' + g.to; }).join(', '); }
@@ -1281,6 +1308,7 @@ function planCard(db, cs, sel, wide) {
   w.days.forEach(function (x) {
     var dn = dayName(x.date);
     x.k.people.forEach(function (p) { pr.push(row('', dn + ' · ' + p.meal, 'Plan ' + (p.plan == null ? '–' : nf(p.plan)) + ' · counted: ' + (p.fixed ? 'not counted' : (p.counted == null ? 'no count' : nf(p.counted))), !p.fixed && p.plan != null && p.counted != null && p.counted !== p.plan ? tag(p.counted < p.plan ? 'warn' : '', sg(p.counted - p.plan)) : '')); });
+    if (x.k.portions && x.k.portions.cooked != null) pr.push(row('', dn + ' · Portions cooked', 'Plan ' + nf(x.k.portions.plan) + ' · cooked ' + nf(x.k.portions.cooked) + (x.k.portions.why ? ' · why: ' + esc(x.k.portions.why) : ''), x.k.portions.cooked !== x.k.portions.plan ? tag('warn', sg(x.k.portions.cooked - x.k.portions.plan)) : tag('ok', 'As planned')));
     for (var o2 in (x.k.day.o || {})) pr.push(row('', dn + ' · For ' + esc(o2), 'Plan ' + nf(x.k.day.o[o2]) + ' · not counted'));
     x.k.food.forEach(function (f) { var it = eatItem(db, f.id); if (f.plan == null && f.out == null) return; fr.push(row('', dn + ' · ' + esc(it.name), 'Plan ' + (f.plan == null ? 'nothing' : fmt(f.plan) + ' ' + esc(it.unit)) + ' · taken out: ' + (!f.before ? 'no count' : (f.out == null ? 'not counted' : fmt(f.out) + ' ' + esc(it.unit))), f.diff ? tag(f.diff > 0 ? 'warn' : '', sg(f.diff)) : '')); });
     x.k.people.forEach(function (p) { ppl.push([dayName(x.date), p.meal, p.plan == null ? '–' : nf(p.plan), p.fixed ? 'not counted' : (p.counted == null ? 'no count' : nf(p.counted)), p.fixed || p.plan == null || p.counted == null ? '–' : sg(p.counted - p.plan)]); });
@@ -1585,6 +1613,7 @@ function enter(scr) {
     var su = e && e.data.u ? e.data.u : null, bu = b && b.data.u ? b.data.u : {};
     S.f.u = {}; rows.forEach(function (id) { var it = eatItem(db, id); if (!it || it.unit === it.use) return; S.f.u[id] = scr === 'after' ? (bu[id] || 'use') : (e ? ((su && su[id]) || 'use') : 'unit'); });
     /* leftovers in portions: the size of one portion of each food; saved ones show again in portions */
+    if (scr === 'before') { delete S.f.q.pc; S.f.q.pc = e && e.data.pc != null ? e.data.pc : null; S.f.pcw = e && e.data.pcw ? e.data.pcw : ''; }
     if (scr === 'after') { S.f.q = { pr: e && e.data.pr != null ? e.data.pr : null }; S.f.nc = {}; }
     if (false) {
       S.f.ps = {}; rows.forEach(function (id) {
@@ -1928,6 +1957,7 @@ A.step = function (el) {
   liveUpdate();
 };
 function liveUpdate() {
+  var pcm = document.getElementById('pcm'); if (pcm && S.scr === 'before') { var hadW = document.activeElement && document.activeElement.id === 'pcw'; pcm.innerHTML = cookedMatch(view()); if (hadW) { var w9 = document.getElementById('pcw'); if (w9) w9.focus(); } }
   if (S.scr === 'endweek' || S.scr === 'startweek') view().items.forEach(function (it) { var cv = document.getElementById('cv_' + it.id); if (cv) cv.innerHTML = countConvLine(it); });
   var bal = document.getElementById('bal'); if (bal && S.scr === 'after') bal.innerHTML = balanceHtml();
   var dn = document.getElementById('din'); if (dn && S.scr === 'after') { var dv = dinnerPlanned(view(), S.sess.centre, S.date); if (dv != null) dn.innerHTML = dinnerSplit(dv, eatNum(S.f.q.pr)); }
@@ -1943,7 +1973,10 @@ function missingRows() {
 A.saveBefore = function () {
   var miss = missingRows();
   if (miss.length) { S.notice = 'Write a number or tap Not counted: ' + miss.join(', ') + '.'; return render(); }
-  var d = qData(); S.f.rows.forEach(function (id) { if (!(id in d.q)) d.q[id] = null; });
+  var pc = eatNum(S.f.q.pc), pp = planPortions(view(), S.sess.centre, S.date);
+  if (pc != null && pp && Math.round(pc) !== pp.tot && !(S.f.pcw || '').trim()) { S.notice = 'Write why the portions cooked are ' + (Math.round(pc) > pp.tot ? 'more' : 'fewer') + ' than the menu of the week.'; return render(); }
+  var d = qData(); delete d.q.pc; S.f.rows.forEach(function (id) { if (!(id in d.q)) d.q[id] = null; });
+  if (pc != null) { d.pc = Math.round(pc); if (pp && d.pc !== pp.tot) d.pcw = (S.f.pcw || '').trim(); }
   if (S.f.rows.indexOf('chk') >= 0 && !('pcs' in d.q)) d.q.pcs = null;
   d.u = S.f.u || {};
   var toPeople = peopleOpen(); saveEntry('dbefore', '', d); setStepSkip('before', false); S.notice = ''; go(toPeople ? 'people' : 'today');
@@ -2095,6 +2128,8 @@ function backTarget() {
   var gate = needDay();
   if (gate) return 'centre';
   if (S.scr === 'name') return 'signin';
+  /* the pages of the bar are the top: their back is the choice of the day (Enter data), not the page seen before */
+  if (navItems().some(function (x) { return x[0] === S.scr; })) return S.sess.mode === 'entry' ? 'day' : '';
   var h = (S.hist || []).filter(function (x) { return x !== S.scr && SCREENS[x] && ['pin', 'signin', 'name', 'centre'].indexOf(x) < 0; });
   if (h.length) return h[h.length - 1];
   if (S.sess.mode === 'entry' && DAYSCR[S.scr]) return 'day';
@@ -2239,6 +2274,7 @@ function exportXlsx() {
   var seen = {}, fxDay = {};
   E.forEach(function (e) { if (e.type !== 'people' || fxDay[e.centre + e.date]) return; fxDay[e.centre + e.date] = 1; var cc = eatCentre(db, e.centre); (cc ? cc.meals : []).forEach(function (m) { var fx = eatFixed(db, e.centre, m); if (fx != null) people.rows.push([e.date, WD[eatWeekday(e.date)], shown(cc.name), m, fx, '', 'Fixed number, not counted', '', '']); }); });
   E.forEach(function (e) { if (e.type === 'dafter' && e.data.pr != null) people.rows.push([e.date, WD[eatWeekday(e.date)], centreName(e.centre), 'Portions remained', e.data.pr, '', '', e.byName || '', e.at || '']); });
+  E.forEach(function (e) { if (e.type === 'dbefore' && e.data.pc != null) people.rows.push([e.date, WD[eatWeekday(e.date)], centreName(e.centre), 'Portions cooked', e.data.pc, '', e.data.pcw ? 'Why different from the menu of the week: ' + e.data.pcw : '', e.byName || '', e.at || '']); });
   E.forEach(function (e) { if (e.type === 'staff') people.rows.push([e.date, WD[eatWeekday(e.date)], centreName(e.centre), 'Kitchen staff', e.data.n, '', '', e.byName || '', e.at || '']); });
   E.forEach(function (e) {
     var c = centreName(e.centre);

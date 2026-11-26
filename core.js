@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'beta 1.8';
+var EAT_VERSION = 'beta 1.9';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 /* the meals a centre can have now (20/11: breakfast is left out for now; old breakfast counts are still read) */
 var EAT_MEALS_ON = ['Lunch', 'Dinner'];
@@ -197,6 +197,9 @@ function eatPlanCheck(db, centre, date) {
   }
   for (var id in (day.q || {})) one(id);
   for (id in bq) one(id);
+  /* beta 1.9: the portions cooked against the portions of the plan (all meals and the other places) */
+  var pp = 0; for (var pk in (day.p || {})) pp += day.p[pk] || 0; for (pk in (day.o || {})) pp += day.o[pk] || 0;
+  out.portions = { plan: pp, cooked: b && b.data.pc != null ? b.data.pc : null, why: b && b.data.pcw ? b.data.pcw : '' };
   return out;
 }
 function eatPlates(p) { var t = p.data.n || 0, g = p.data.g || {}; for (var k in g) t += g[k] || 0; return t; }
@@ -297,6 +300,7 @@ function eatDayUse(db, centre, date) {
   if (sk && sk.data.on) { out.skipped = true; return out; }
   var b = eatGet(db, 'dbefore', centre, date, ''), a = eatGet(db, 'dafter', centre, date, ''), left = eatLeft(db, centre);
   if (!b) { if (sk && sk.data.before) out.skipped = true; return out; }
+  if (b.data.pc != null) { out.cookedP = b.data.pc; out.cookedWhy = b.data.pcw || ''; }
   if (sk && sk.data.after && left && !a) out.afterSkipped = true;
   out.hasBefore = true; out.hasAfter = !!a; out.closed = !!a || !left;
   if (!left) a = null;
@@ -717,6 +721,8 @@ function eatClean(db, type, d) {
   /* beta 1.7 (Daniela, 26/11): the leftovers are one number, the portions remained */
   if (type === 'dafter' && d.pr != null) return { pr: Math.max(0, Math.min(5000, Math.round(Number(d.pr) || 0))), q: {}, nc: {}, u: {} };
   if (type === 'dafter' && (d.pz || d.ps)) return { q: qs(d.q), nc: ncs(d.nc), u: us(d.u), pz: qs(d.pz), ps: qs(d.ps) };
+  /* beta 1.9 (Mauro, 26/11): the portions cooked for the day, and why they are not the portions of the menu of the week */
+  if (type === 'dbefore' && d.pc != null && eatNum(d.pc) != null) { var pco = { q: qs(d.q), nc: ncs(d.nc), u: us(d.u), pc: Math.max(0, Math.min(5000, Math.round(eatNum(d.pc)))) }; var pw = eatText(d.pcw, 300); if (pw) pco.pcw = pw; return pco; }
   if (type === 'dbefore' || type === 'dafter') return { q: qs(d.q), nc: ncs(d.nc), u: us(d.u) };
   if (type === 'dmenu') {
     var ms = {}, src = d.meals || {};
