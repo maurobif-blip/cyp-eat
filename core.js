@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'beta 1.9';
+var EAT_VERSION = 'beta 1.10';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 /* the meals a centre can have now (20/11: breakfast is left out for now; old breakfast counts are still read) */
 var EAT_MEALS_ON = ['Lunch', 'Dinner'];
@@ -301,6 +301,7 @@ function eatDayUse(db, centre, date) {
   var b = eatGet(db, 'dbefore', centre, date, ''), a = eatGet(db, 'dafter', centre, date, ''), left = eatLeft(db, centre);
   if (!b) { if (sk && sk.data.before) out.skipped = true; return out; }
   if (b.data.pc != null) { out.cookedP = b.data.pc; out.cookedWhy = b.data.pcw || ''; }
+  out.pp = b.data.pp || null;
   if (sk && sk.data.after && left && !a) out.afterSkipped = true;
   out.hasBefore = true; out.hasAfter = !!a; out.closed = !!a || !left;
   if (!left) a = null;
@@ -351,8 +352,11 @@ function eatUsesOfDay(db, centre, date) {
 /* per plate needs the quantities after and the people count */
 function eatPerPlate(use, id) {
   if (!use.closed || use.base == null || use.base <= 0 || use.used[id] == null) return null;
-  return use.used[id] / use.base;
+  return use.used[id] / eatBaseOf(use, id);
 }
+/* beta 1.10: the portions that ate one food. A food written with its own portions (pork for most, chicken for some) is shared by those portions only;
+   the food taken out and the food left do not change, because the portions left are taken in the same share. pcs = the pieces of the chicken */
+function eatBaseOf(use, id) { var k = id === 'pcs' ? 'chk' : id; return use.pp && use.pp[k] > 0 ? use.pp[k] : use.base; }
 
 /* stock of one centre. A count at the start of a day (startweek) comes before that day's deliveries and meals;
    a count at the end of a day (endweek) comes after them. atStart: the stock in the morning of upTo, before its count. */
@@ -722,8 +726,15 @@ function eatClean(db, type, d) {
   if (type === 'dafter' && d.pr != null) return { pr: Math.max(0, Math.min(5000, Math.round(Number(d.pr) || 0))), q: {}, nc: {}, u: {} };
   if (type === 'dafter' && (d.pz || d.ps)) return { q: qs(d.q), nc: ncs(d.nc), u: us(d.u), pz: qs(d.pz), ps: qs(d.ps) };
   /* beta 1.9 (Mauro, 26/11): the portions cooked for the day, and why they are not the portions of the menu of the week */
-  if (type === 'dbefore' && d.pc != null && eatNum(d.pc) != null) { var pco = { q: qs(d.q), nc: ncs(d.nc), u: us(d.u), pc: Math.max(0, Math.min(5000, Math.round(eatNum(d.pc)))) }; var pw = eatText(d.pcw, 300); if (pw) pco.pcw = pw; return pco; }
-  if (type === 'dbefore' || type === 'dafter') return { q: qs(d.q), nc: ncs(d.nc), u: us(d.u) };
+  if (type === 'dbefore') {
+    var pco = { q: qs(d.q), nc: ncs(d.nc), u: us(d.u) };
+    if (d.pc != null && eatNum(d.pc) != null) { pco.pc = Math.max(0, Math.min(5000, Math.round(eatNum(d.pc)))); var pw = eatText(d.pcw, 300); if (pw) pco.pcw = pw; }
+    /* beta 1.10 (Daniela, 26/11: pork today, chicken for who does not eat pork): the portions that had each food, when not everyone had all */
+    var ppo = {}, anyPp = false; for (var ppk in (d.pp || {})) { var ppn = eatNum(d.pp[ppk]); if (eatItem(db, ppk) && ppn != null && ppn > 0) { ppo[ppk] = Math.min(5000, Math.round(ppn)); anyPp = true; } }
+    if (anyPp) pco.pp = ppo;
+    return pco;
+  }
+  if (type === 'dafter') return { q: qs(d.q), nc: ncs(d.nc), u: us(d.u) };
   if (type === 'dmenu') {
     var ms = {}, src = d.meals || {};
     for (var mi = 0; mi < EAT_MEALS.length; mi++) {
@@ -755,13 +766,16 @@ function eatClean(db, type, d) {
   if (type === 'endweek' || type === 'startweek') {
     /* beta 1.8 (Mauro, 26/11: the canteens have no scale, the count of the fridge must be flexible): a food can be marked "about",
        and written as the cook sees it: chicken in cut pieces, kg foods in bags of about so many kg. q stays in the store unit;
-       alt keeps what was written (n, u: pieces or bags, k: kg in one bag) */
+       alt keeps what was written (n, u: pieces, bags or loose, k: kg in one bag or pieces in one chicken, w: whole units counted too) */
     var cw = { q: qs(d.q), nc: ncs(d.nc) }, cab = ncs(d.ab), calt = {}, anyAlt = false, asrc = d.alt || {};
     for (var ak in asrc) {
-      var av = asrc[ak] || {}, an = eatNum(av.n), au = av.u === 'pieces' || av.u === 'bags' ? av.u : '';
+      var av = asrc[ak] || {}, an = eatNum(av.n), au = av.u === 'pieces' || av.u === 'bags' || av.u === 'loose' ? av.u : '';
       if (!eatItem(db, ak) || !au || an == null || an < 0 || cw.nc[ak]) continue;
       var ao = { n: Math.round(an * 1000) / 1000, u: au };
-      if (au === 'bags') { var akg = eatNum(av.k); if (!(akg > 0)) continue; ao.k = Math.round(akg * 1000) / 1000; }
+      /* beta 1.10 (Mauro, 26/11: "they count whole chickens too ... be flexible with the units"): w = what was counted in the store unit
+         next to the pieces, bags or loose; k = kg in one bag, or pieces in one chicken (small chickens are cut in 8) */
+      var aw = eatNum(av.w); if (aw != null && aw > 0) ao.w = Math.round(aw * 1000) / 1000;
+      if (au === 'bags' || au === 'pieces') { var akg = eatNum(av.k); if (au === 'bags' && !(akg > 0)) continue; if (akg > 0) ao.k = Math.round(akg * 1000) / 1000; }
       calt[ak] = ao; anyAlt = true;
     }
     for (var abk in cab) { if (cw.nc[abk] || !eatItem(db, abk)) delete cab[abk]; }
@@ -842,4 +856,4 @@ function eatHandle(req, store) {
   for (i = 0; i < db.comments.length; i++) if (db.comments[i].rev > since && (mode === 'admin')) out.comments.push(db.comments[i]);
   return out;
 }
-if (typeof module !== 'undefined') module.exports = { eatDinLeft: eatDinLeft, eatPortionSize: eatPortionSize, eatPlanRead: eatPlanRead, eatPlanDay: eatPlanDay, eatPlanCheck: eatPlanCheck, eatPlanOthers: eatPlanOthers, eatNewDb: eatNewDb, eatApply: eatApply, eatHandle: eatHandle, eatMealUse: eatMealUse, eatNote: eatNote, eatNotes: eatNotes, eatNoteGaps: eatNoteGaps, eatNoteNo: eatNoteNo, eatUpgrade: eatUpgrade, eatConv: eatConv, eatStock: eatStock, eatWeekCheck: eatWeekCheck, eatFixed: eatFixed, EAT_MEALS_ON: EAT_MEALS_ON, EAT_PACKS: EAT_PACKS, eatPlaceMatch: eatPlaceMatch, eatNoteQ: eatNoteQ, eatNoteHas: eatNoteHas, eatPlates: eatPlates, eatCanteens: eatCanteens, eatPlaces: eatPlaces, eatDayUse: eatDayUse, eatDayMenu: eatDayMenu, eatDayRows: eatDayRows, eatUsesOfDay: eatUsesOfDay, eatNum: eatNum, eatLeft: eatLeft, eatWeekCount: eatWeekCount, eatNoteUntil: eatNoteUntil, eatPerPlate: eatPerPlate, eatRows: eatRows, eatMenuOf: eatMenuOf, eatGet: eatGet, eatKey: eatKey, eatMonday: eatMonday, eatAddDays: eatAddDays, eatToday: eatToday, eatWeekday: eatWeekday, EAT_VERSION: EAT_VERSION };
+if (typeof module !== 'undefined') module.exports = { eatDinLeft: eatDinLeft, eatPortionSize: eatPortionSize, eatPlanRead: eatPlanRead, eatPlanDay: eatPlanDay, eatPlanCheck: eatPlanCheck, eatPlanOthers: eatPlanOthers, eatNewDb: eatNewDb, eatApply: eatApply, eatHandle: eatHandle, eatMealUse: eatMealUse, eatNote: eatNote, eatNotes: eatNotes, eatNoteGaps: eatNoteGaps, eatNoteNo: eatNoteNo, eatUpgrade: eatUpgrade, eatConv: eatConv, eatStock: eatStock, eatWeekCheck: eatWeekCheck, eatFixed: eatFixed, EAT_MEALS_ON: EAT_MEALS_ON, EAT_PACKS: EAT_PACKS, eatPlaceMatch: eatPlaceMatch, eatNoteQ: eatNoteQ, eatNoteHas: eatNoteHas, eatPlates: eatPlates, eatCanteens: eatCanteens, eatPlaces: eatPlaces, eatDayUse: eatDayUse, eatDayMenu: eatDayMenu, eatDayRows: eatDayRows, eatUsesOfDay: eatUsesOfDay, eatNum: eatNum, eatLeft: eatLeft, eatWeekCount: eatWeekCount, eatNoteUntil: eatNoteUntil, eatPerPlate: eatPerPlate, eatBaseOf: eatBaseOf, eatRows: eatRows, eatMenuOf: eatMenuOf, eatGet: eatGet, eatKey: eatKey, eatMonday: eatMonday, eatAddDays: eatAddDays, eatToday: eatToday, eatWeekday: eatWeekday, EAT_VERSION: EAT_VERSION };
