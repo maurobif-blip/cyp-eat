@@ -1,6 +1,6 @@
 /* CYP EAT: the rules. The same text runs in the Google script (shared database), in the app (to show a change at once)
    and in the tests. Plain ES5 so it runs everywhere. */
-var EAT_VERSION = 'beta 1.7';
+var EAT_VERSION = 'beta 1.8';
 var EAT_MEALS = ['Breakfast', 'Lunch', 'Dinner'];
 /* the meals a centre can have now (20/11: breakfast is left out for now; old breakfast counts are still read) */
 var EAT_MEALS_ON = ['Lunch', 'Dinner'];
@@ -418,7 +418,7 @@ function eatWeekCheck(db, centre, monday, today) {
     var it = db.items[i]; if (!it.stock) continue;
     var start = sw ? (sw.data.nc && sw.data.nc[it.id] ? null : (sw.data.q[it.id] != null ? sw.data.q[it.id] : 0)) : (st[it.id] && st[it.id].startDate ? st[it.id].expected : null);
     if (!sw && st[it.id] && st[it.id].startDate && !out.startDate) out.startDate = st[it.id].startDate;
-    out.items[it.id] = { start: start, inn: 0, used: 0, usedOk: true, expected: null, counted: end ? (end.data.nc && end.data.nc[it.id] ? null : (end.data.q[it.id] != null ? end.data.q[it.id] : 0)) : undefined, diff: null };
+    out.items[it.id] = { start: start, inn: 0, used: 0, usedOk: true, expected: null, counted: end ? (end.data.nc && end.data.nc[it.id] ? null : (end.data.q[it.id] != null ? end.data.q[it.id] : 0)) : undefined, about: !!(end && end.data.ab && end.data.ab[it.id]), diff: null };
   }
   if (to < from) return out;
   for (i = 0; i < db.entries.length; i++) {
@@ -746,7 +746,23 @@ function eatClean(db, type, d) {
     }
     return { days: days, photo: /^[A-Za-z0-9_\-]{10,80}$/.test(String(d.photo || '')) ? String(d.photo) : '', remark: eatText(d.remark, 200) };
   }
-  if (type === 'endweek' || type === 'startweek') return { q: qs(d.q), nc: ncs(d.nc) };
+  if (type === 'endweek' || type === 'startweek') {
+    /* beta 1.8 (Mauro, 26/11: the canteens have no scale, the count of the fridge must be flexible): a food can be marked "about",
+       and written as the cook sees it: chicken in cut pieces, kg foods in bags of about so many kg. q stays in the store unit;
+       alt keeps what was written (n, u: pieces or bags, k: kg in one bag) */
+    var cw = { q: qs(d.q), nc: ncs(d.nc) }, cab = ncs(d.ab), calt = {}, anyAlt = false, asrc = d.alt || {};
+    for (var ak in asrc) {
+      var av = asrc[ak] || {}, an = eatNum(av.n), au = av.u === 'pieces' || av.u === 'bags' ? av.u : '';
+      if (!eatItem(db, ak) || !au || an == null || an < 0 || cw.nc[ak]) continue;
+      var ao = { n: Math.round(an * 1000) / 1000, u: au };
+      if (au === 'bags') { var akg = eatNum(av.k); if (!(akg > 0)) continue; ao.k = Math.round(akg * 1000) / 1000; }
+      calt[ak] = ao; anyAlt = true;
+    }
+    for (var abk in cab) { if (cw.nc[abk] || !eatItem(db, abk)) delete cab[abk]; }
+    for (abk in cab) { cw.ab = cab; break; }
+    if (anyAlt) cw.alt = calt;
+    return cw;
+  }
   if (type === 'note') { var nq = qs(d.q), q2 = {}; for (var k2 in nq) if (k2 !== 'pcs' && nq[k2] != null && nq[k2] > 0) q2[k2] = nq[k2]; var dy = Math.round(Number(d.days)); var parts = [], psrc = d.parts || [];
     for (var pi = 0; pi < psrc.length && parts.length < 4; pi++) {
       var pp = psrc[pi] || {}, pq = qs(pp.q), pq2 = {}, pany = false, pto = eatCentre(db, pp.to) ? String(pp.to) : '', pname = eatText(pp.name, 60) || (pto ? eatCentre(db, pto).name : '');
@@ -879,7 +895,8 @@ function details_(db, e) {
     if (id === 'pcs') { parts.push('Chicken pieces ' + (nc.pcs ? 'not counted' : q[id])); continue; }
     it = eatItem(db, id); if (!it) continue;
     var unit = e.type === 'received' || e.type === 'endweek' || e.type === 'startweek' || e.type === 'note' || (d.u && d.u[id] === 'unit') ? it.unit : it.use;
-    parts.push(it.name + ' ' + (nc[id] || q[id] == null ? 'not counted' : q[id] + ' ' + unit));
+    var alt = d.alt && d.alt[id], how = alt ? ' (written: ' + alt.n + ' ' + alt.u + (alt.k ? ' of about ' + alt.k + ' kg' : '') + ')' : '';
+    parts.push(it.name + ' ' + (nc[id] || q[id] == null ? 'not counted' : (d.ab && d.ab[id] ? 'about ' : '') + q[id] + ' ' + unit + how));
   }
   if (e.type === 'note') (d.parts || []).forEach(function (pt) { var w = []; for (var k in pt.q) { var pit = eatItem(db, k); if (pit) w.push(pt.q[k] + ' ' + pit.unit + ' of ' + pit.name.toLowerCase()); } parts.push('Of which for ' + pt.name + ': ' + w.join(', ')); });
   if (e.type === 'note' && d.days) parts.push('Should last ' + d.days + (d.days === 1 ? ' day' : ' days'));
