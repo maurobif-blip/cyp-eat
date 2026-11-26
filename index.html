@@ -91,6 +91,25 @@ textarea.cyp-input{min-height:calc(var(--touch-min) * 2);padding:var(--space-2) 
 @media (max-width: 520px) { .cyp-appbar__sync .synct { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } }
 /* beta 1.8: the photo of the note above the form stays small, the form is the work */
 img.photo.rdimg { max-height: 180px; width: auto; max-width: 100%; display: block; margin: 0 auto var(--space-2); object-fit: contain; }
+/* beta 1.11: the overview on one page. The days of a canteen as seven squares: done, part, nothing, nobody there, today, to come */
+.dgrid { display: inline-flex; gap: 3px; vertical-align: middle; }
+.dg { display: inline-block; width: 22px; height: 22px; border-radius: 4px; background: var(--surface-soft); border: 1px solid var(--line); font: 600 12px/20px var(--font-text); text-align: center; font-style: normal; color: var(--ink-muted); }
+.dg--done { background: var(--ok); border-color: var(--ok); color: #fff; }
+.dg--part { background: var(--yellow); border-color: var(--yellow); color: var(--navy); }
+.dg--none { background: var(--danger); border-color: var(--danger); color: #fff; }
+.dg--absent, .dg--skip { background: var(--ink-muted); border-color: var(--ink-muted); color: #fff; }
+.dg--today { border: 2px solid var(--blue); color: var(--blue); }
+p .dg { width: 12px; height: 12px; vertical-align: -1px; font-size: 0; }
+.ovname { display: inline-flex; align-items: center; gap: var(--space-2); font-weight: 600; }
+.ovc { text-decoration: none; color: inherit; gap: var(--space-3); }
+.ovc__head { display: flex; align-items: center; gap: var(--space-2); }
+.ovc__head .ovname { flex: 1; }
+.ovck { margin: var(--space-1) 0 0; padding-left: 1.1em; }
+.ovck li { margin: 2px 0; }
+.ovck--0 { color: var(--danger); font-weight: 600; }
+.ovck--3 { color: var(--ink-muted); }
+.cyp-tiles.ovtiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-3); }
+.cyp-tiles.ovtiles .cyp-stat { margin: 0; }
 </style>
 </head>
 <body>
@@ -414,7 +433,7 @@ function topBar() {
     '<button class="cyp-appbar__action" data-a="comment" aria-label="Comment">' + ic('msg') + '</button>' +
     /* beta 1.7 (comment of 26/11 from the overview): back to the page with the three accesses, top right; the More page is gone */
     '<button class="cyp-appbar__action" data-a="switchAsk" aria-label="Change access: back to the first page">' + ic('logout') + '</button>' +
-    (S.cfg ? '<span class="cyp-appbar__sync" role="status">' + ic(st[0]) + '<span class="synct">' + st[1] + '</span></span>' : '') + '</div>' + (WIDE.matches && hasNav() ? navBar(true) : '') + (S.scr === 'overview' && S.ovOn ? chapterNav() : '') +
+    (S.cfg ? '<span class="cyp-appbar__sync" role="status">' + ic(st[0]) + '<span class="synct">' + st[1] + '</span></span>' : '') + '</div>' + (WIDE.matches && hasNav() ? navBar(true) : '') + '' +
     (S.cfg && !S.online ? banner('warn', 'No internet. Saved on this ' + deviceWord() + '. It will send by itself.' + (S.queue.length ? ' ' + S.queue.length + ' to send.' : '')) : '') + '</header>';
 }
 function centreName(id) { var c = eatCentre(view(), id); return c ? shown(c.name) : id; }
@@ -461,7 +480,7 @@ function render() {
   /* numbers count once, when their page or chapter comes in */
   if (fresh || S.anim) countUp(app); S.anim = '';
   S.keepScroll = false; S.shown = scr; S.waiting = false;
-  if (S.sess && !app.querySelector('main .bk, main [data-a="ovBack"]') && !(S.scr === 'overview' && S.ovOn) && backTarget()) app.querySelector('main').insertAdjacentHTML('afterbegin', '<button class="cyp-btn start bk" data-a="histBack">' + ic('back') + 'Back</button>');
+  if (S.sess && !app.querySelector('main .bk, main [data-a="ovBack"]') && backTarget()) app.querySelector('main').insertAdjacentHTML('afterbegin', '<button class="cyp-btn start bk" data-a="histBack">' + ic('back') + 'Back</button>');
   if (!S.modal) { var af = app.querySelector('[data-focus]'); if (af) { try { af.focus({ preventScroll: true }); } catch (e) {} } }
 }
 /* new data from the database: do not redraw under someone who is typing */
@@ -646,8 +665,8 @@ function draftKey() { return 'people|' + S.sess.centre + '|' + S.date + '|' + S.
 function centreGroups() { var c = eatCentre(view(), S.sess.centre); return c && c.groups ? c.groups : []; }
 function curCount() { return S.f.grp ? (S.f.g[S.f.grp] || 0) : S.f.n; }
 function setCount(v) { if (S.f.grp) S.f.g[S.f.grp] = v; else S.f.n = v; }
-function pData() { var d = { n: S.f.skip ? 0 : S.f.n }, gs = centreGroups(); if (gs.length) { d.g = {}; gs.forEach(function (k) { d.g[k] = S.f.skip ? 0 : (S.f.g[k] || 0); }); } if (S.f.skip) d.skip = true; else if (S.f.done) d.done = true; return d; }
-function samePeople(e, d) { if (!e) return false; if (e.data.n !== d.n || !!e.data.done !== !!d.done || !!e.data.skip !== !!d.skip) return false; var a = e.data.g || {}, b = d.g || {}; for (var k in b) if ((a[k] || 0) !== b[k]) return false; return true; }
+function pData() { var d = { n: S.f.skip ? 0 : S.f.n }, gs = centreGroups(); if (!S.f.skip && S.f.pf && dayProteins().length > 1) { var pf = {}, a1 = false; dayProteins().forEach(function (id) { pf[id] = S.f.pf[id] || 0; if (pf[id]) a1 = true; }); if (a1) d.pf = pf; } if (gs.length) { d.g = {}; gs.forEach(function (k) { d.g[k] = S.f.skip ? 0 : (S.f.g[k] || 0); }); } if (S.f.skip) d.skip = true; else if (S.f.done) d.done = true; return d; }
+function samePeople(e, d) { if (!e) return false; if (e.data.n !== d.n || !!e.data.done !== !!d.done || !!e.data.skip !== !!d.skip) return false; var a = e.data.g || {}, b = d.g || {}; for (var k in b) if ((a[k] || 0) !== b[k]) return false; if (JSON.stringify(e.data.pf || {}) !== JSON.stringify(d.pf || {})) return false; return true; }
 function peopleLine(d) {
   var gs = centreGroups(); if (!gs.length) return plural(d.n, 'portion', 'portions');
   return esc(centreName(S.sess.centre)) + ' ' + d.n + gs.map(function (k) { return ' · ' + esc(k) + ' ' + ((d.g || {})[k] || 0); }).join('') + ' = ' + plural(eatPlates({ data: d }), 'portion', 'portions');
@@ -672,8 +691,10 @@ SCREENS.people = function () {
     othersOf(db, c, S.date).map(function (x) { return linkRow('', 'For ' + esc(x.name), x.n + ' portions in the plan of the week · cooked here, not counted', 'data-a="planGo"'); }).join('') +
     (fixedMeals().length ? linkRow('clip', 'Other places cooked for here', 'Chinika, Ukubalula: write them in the plan of the week', 'data-a="planGo"') : '');
   var grp = gs.length ? choice('', [''].concat(gs).map(function (k) { return { l: esc(k || centreName(c)) + ' <b class="num">' + (k ? (S.f.g[k] || 0) : S.f.n) + '</b>', on: (S.f.grp || '') === k, at: 'data-a="grp" data-g="' + esc(k) + '"' }; }), { aria: 'Who eats', name: 'grp' }) : '';
-  return dayBar() + mealSeg() + grp +
-    '<div class="tapbox"><button class="tap s-' + st + '" data-a="tap" aria-label="Add one portion' + (S.f.grp ? ' for ' + esc(S.f.grp) : '') + '"><span class="num big" id="cnt">' + n + '</span><span class="heading-2">' + (S.f.grp ? esc(S.f.grp) + ': +1' : 'Tap: +1') + '</span></button></div>' +
+  var pks = dayProteins(), pk = curProtein();
+  var prot = pks.length > 1 ? choice('Protein of the portions you count now', pks.map(function (id) { return { l: esc(eatItem(db, id).name) + ' <b class="num" data-pfn="' + id + '">' + ((S.f.pf || {})[id] || 0) + '</b>', on: id === pk, at: 'data-a="prot" data-id="' + id + '"' }; }), { name: 'prot' }) + small('Out of one protein? Switch here and go on counting: each portion counts for the protein chosen.') : '';
+  return dayBar() + mealSeg() + grp + prot +
+    '<div class="tapbox"><button class="tap s-' + st + '" data-a="tap" aria-label="Add one portion' + (S.f.grp ? ' for ' + esc(S.f.grp) : '') + (pk && pks.length > 1 ? ', ' + esc(eatItem(db, pk).name.toLowerCase()) : '') + '"><span class="num big" id="cnt">' + n + '</span><span class="heading-2">' + (S.f.grp ? esc(S.f.grp) + ': +1' : (pk && pks.length > 1 ? esc(eatItem(db, pk).name) + ': +1' : 'Tap: +1')) + '</span></button></div>' +
     (countMeals().length < 2 ? '<p class="heading-3 center">' + S.meal + ' · ' + esc(centreName(c)) + '</p>' : '') +
     '<div class="pst" id="pst" aria-live="polite">' + peopleStatus() + '</div>' +
     '<div class="three">' + btn('+5', 'data-a="add" data-n="5"') + btn('+10', 'data-a="add" data-n="10"') + btn('Other', 'data-a="adding"') + '</div>' +
@@ -698,6 +719,14 @@ function staffCard(db, c) {
     '<div class="inl"><input id="stn" class="cyp-input num" type="number" inputmode="numeric" min="0" max="200" aria-label="Kitchen staff who ate today" data-f="staffN" value="' + esc(v) + '">' + btn('Save', 'data-a="saveStaff"') + '</div>' +
     (n == null ? small('Not written yet.') : small('Saved: ' + plural(n, 'person', 'people') + '.')));
 }
+/* beta 1.11 (Letizia, 26/11: "they have not enough of one protein and they complete with another, ex: fish and eggs"): with two proteins or more
+   in the menu of the day, the person chooses the protein and counts; each change of the count goes to the protein chosen (pf) */
+function dayProteins() {
+  var dm = eatDayMenu(view(), S.sess.centre, S.date), x = dm.saved ? dm.meals[S.meal] || dm.meals.Lunch : null;
+  return x && x.relish ? x.relish.filter(function (id) { var it = eatItem(view(), id); return it && it.relish; }) : [];
+}
+function curProtein() { var pks = dayProteins(); return pks.length ? (pks.indexOf(S.f.pk) >= 0 ? S.f.pk : pks[0]) : ''; }
+function protAdd(k, id) { var pk = id || curProtein(); if (dayProteins().length < 2 || !pk) return; S.f.pf = S.f.pf || {}; S.f.pf[pk] = Math.max(0, (S.f.pf[pk] || 0) + k); var b = document.querySelector('[data-pfn="' + pk + '"]'); if (b) b.textContent = S.f.pf[pk]; }
 
 /* ---------- daily: the food of the whole day ---------- */
 /* is there still a meal to count today (not finished, not marked "not counted")? */
@@ -760,7 +789,7 @@ SCREENS.today = function () {
     (left ? stepRow('4', 'Leftovers', a ? 'Saved' : (noAfter ? 'Leftovers not counted. They can still be added.' : 'After the count: what is left at the end of the day'), 'after', state(a, noAfter)) : ''));
   /* the day: plates and the amount a plate */
   var u = eatDayUse(db, c, d), rows = [];
-  if (u.closed && u.base) db.items.forEach(function (it) { if (u.used[it.id] == null) return; rows.push([esc(it.name), perTxt(it, eatPerPlate(u, it.id)) + (u.pp && u.pp[it.id] ? ' (' + plural(u.pp[it.id], 'portion', 'portions') + ' with ' + esc(it.name.toLowerCase()) + ')' : '')]); });
+  if (u.closed && u.base) db.items.forEach(function (it) { if (u.used[it.id] == null) return; rows.push([esc(it.name), perTxt(it, eatPerPlate(u, it.id)) + (eatBaseOf(u, it.id) !== u.base ? ' (' + plural(eatBaseOf(u, it.id), 'portion', 'portions') + ' with ' + esc(it.name.toLowerCase()) + ')' : '')]); });
   /* beta 1.6: the food left after the last meal, next to the amount a plate */
   var lrows = []; if (u.remained != null) { lrows.push(['Portions remained', u.remained]); if (u.dinner != null) lrows.push(['Dinner (sapa)', Math.min(u.dinner, u.remained) + (u.dinnerShort ? ' (' + u.dinnerShort + ' missing)' : '')]); lrows.push(['Left for another day', plural(u.leftPortions, 'portion', 'portions')]); }
   if (u.hasAfter) db.items.forEach(function (it) { if (u.left[it.id] == null) return; var lw = leftWords(db, c, d, it, u.left[it.id], it.id === 'chk' ? u.leftPieces : null); if (lw) lrows.push([esc(it.name) + ' left', lw]); });
@@ -806,7 +835,8 @@ function unitTog(it, u) {
   var cur = rowUnit(it, u);
   return choice('', ['unit', 'use'].map(function (x) { return { l: 'In ' + esc(x === 'unit' ? it.unit : it.use), on: x === cur, at: 'data-a="unit" data-k="' + it.id + '" data-v="' + x + '"' }; }), { aria: 'Unit for ' + it.name, name: 'u_' + it.id });
 }
-function backLink() { return backBtn('today', 'Daily'); }
+var BACKNAME = { menu: 'What we eat', before: 'Quantities', after: 'Leftovers', people: 'Portions', today: 'Daily', week: 'Weekly' };
+function backLink() { var to = backTarget(); return BACKNAME[to] && to !== S.scr ? '<button class="cyp-btn start bk" data-a="histBack">' + ic('back') + BACKNAME[to] + '</button>' : backBtn('today', 'Daily'); }
 function weekLink() { return backBtn('week', 'Weekly'); }
 function dayTitle() { return '<p class="label-caps muted">' + dayName(S.date) + ' · ' + esc(centreName(S.sess.centre)) + '</p>'; }
 SCREENS.menu = function () {
@@ -824,7 +854,7 @@ SCREENS.menu = function () {
       (x.isOther ? field('What is it?', 'bfo', '<input id="bfo" class="cyp-input" type="text" data-mv="Breakfast" data-k="other" value="' + esc(x.other) + '">', 'Bread, tea…') : ''));
     return card(h3(both && m === 'Lunch' ? 'Lunch and dinner' : m) + (plan ? small(WD[eatWeekday(S.date)] + ' plan: ' + esc(plan.name.toLowerCase())) : '') +
       choice('', [{ l: 'Nshima', on: !!x.mm, at: 'data-a="mmm" data-m="' + m + '"' }], { many: true, aria: 'Nshima' }) +
-      choice('Relish', relish.map(function (it) { return { l: esc(it.name), on: x.relish.indexOf(it.id) >= 0, at: 'data-a="rel" data-m="' + m + '" data-id="' + it.id + '"' }; }), { many: true, cols: 2 }));   /* no vegetables (Daniela, 26/11: "vegetables we don't care for now") */
+      choice('Protein', relish.map(function (it) { return { l: esc(it.name), on: x.relish.indexOf(it.id) >= 0, at: 'data-a="rel" data-m="' + m + '" data-id="' + it.id + '"' }; }), { many: true, cols: 2 }));   /* no vegetables (Daniela, 26/11: "vegetables we don't care for now") */
   }).join('') + btn('Next: quantities for today', 'data-a="saveMenu"', 'primary block') + skipBtn('menu');
 };
 function foodRowsHtml(f, after) {
@@ -843,7 +873,6 @@ SCREENS.before = function () {
     (othersOf(db, S.sess.centre, S.date).length ? banner('', 'Write all the food taken out today, also the food cooked here for ' + othersWords(db, S.sess.centre, S.date) + '.') : '') +
     cookedCard(db) +
     card(f.rows.length ? foodRowsHtml(f, false) : '<p class="muted">No food on the menu.</p>') +
-    ppCard(db) +
     (more.length ? card(h3('Add another food') + '<div class="wrap">' + more.map(function (it) { return btn('+ ' + esc(it.name), 'data-a="addRow" data-id="' + it.id + '"'); }).join('') + '</div>') : '') +
     btn(peopleOpen() ? 'Save and count the portions' : 'Save', 'data-a="saveBefore"', 'primary block') + skipBtn('before');
 };
@@ -887,7 +916,7 @@ function balanceHtml() {
   var rows = [];
   db.items.forEach(function (it) {
     if (u.used[it.id] === undefined) return;
-    var own = u.pp && u.pp[it.id] > 0 ? u.pp[it.id] : 0;
+    var own = u.base && eatBaseOf(u, it.id) !== u.base ? eatBaseOf(u, it.id) : 0;
     var a = u.used[it.id] != null && u.portions ? (b.data.q[it.id] != null ? (own ? u.used[it.id] / own : (u.used[it.id] + (u.left[it.id] || 0)) / u.portions) : null) : null;
     var pt = it.id === 'chk' && u.pieces != null && u.portions ? fmt(own ? u.pieces / own : (u.pieces + (u.leftPieces || 0)) / u.portions) + ' pieces' : perTxt(it, a).replace(' a portion', '');
     if (own) pt += ' (' + own + ' portions with ' + esc(it.name.toLowerCase()) + ')';
@@ -1611,6 +1640,111 @@ function pinModal() {
     (S.msg ? banner('danger', esc(S.msg), 'alert') : ''),
     btn('Save', 'data-a="pinSave"', 'primary block'));
 }
+/* beta 1.11 (Mauro, 26/11: "overview è orribile ... dovrebbe essere già tutto visibile"; "deve rispondere a quello che l'overview vuole vedere: se le mense
+   stanno facendo un buon lavoro, come sta andando la gestione, se il cibo sparisce, quanto"). One page, no cover and no chapters: the canteens with a verdict,
+   what to check, the food of the week (delivered, plan, taken out, a portion, the fridge), the portions, the last four weeks. A canteen opens its days. */
+var DAYST = { done: ['Done', 'Menu, quantities, portions and leftovers written'], part: ['Part', 'Something not written'], none: ['Nothing', 'Nothing written'], skip: ['Not counted', 'Marked as not counted'], absent: ['Nobody there', 'Nobody of the team at the centre'], today: ['Today', 'Today, not finished yet'], future: ['', 'Still to come'] };
+function dayDots(a) {
+  return '<span class="dgrid" role="img" aria-label="' + esc(a.days.map(function (x) { return WD[eatWeekday(x.date)] + ' ' + (DAYST[x.st][0] || 'to come'); }).join(', ')) + '">' +
+    a.days.map(function (x) { return '<i class="dg dg--' + x.st + '" title="' + esc(dayName(x.date) + ': ' + DAYST[x.st][1]) + '">' + WD[eatWeekday(x.date)].slice(0, 1) + '</i>'; }).join('') + '</span>';
+}
+function verdictTag(a) { return a.verdict === 'danger' ? tag('danger', 'Food missing') : (a.verdict === 'warn' ? tag('warn', 'To check') : tag('ok', 'Good')); }
+function useWords(it, v) { return v == null ? '–' : (it.use === 'kg' ? Math.round(v * 1000) + ' g' : fmt(Math.round(v * 100) / 100) + ' ' + esc(it.use)); }
+/* what to check, most serious first: food missing in the fridge, days not written, portions not accounted for, cooked off the menu, the fridge or the menu not done */
+function accChecks(db, cs, accs) {
+  var out = [];
+  cs.forEach(function (c, i) {
+    var a = accs[i], nm = esc(shown(c.name));
+    a.missing.forEach(function (m) { var it = eatItem(db, m.id); out.push([0, c, nm + ': ' + esc(qtyUnit(m.n, m.unit)) + (m.unit.toLowerCase().indexOf(it.name.toLowerCase().slice(0, 4)) === 0 ? '' : ' of ' + esc(it.name.toLowerCase())) + ' missing in the fridge count of ' + dayName(a.fridge) + (m.portions ? ', about ' + plural(m.portions, 'portion', 'portions') : '') + (m.about ? ' (counted "about")' : '') + '.']); });
+    var bad = a.days.filter(function (x) { return (x.st === 'none' || x.st === 'part') && x.date < todayStr(); });
+    if (bad.length) out.push([1, c, nm + ': ' + plural(bad.length, 'day', 'days') + ' not complete (' + bad.map(function (x) { return WD[eatWeekday(x.date)] + ' ' + (x.st === 'none' ? 'nothing written' : 'part written'); }).join(', ') + '). Food taken out on those days is not explained.']);
+    if (a.unacc > 0) out.push([1, c, nm + ': ' + plural(a.unacc, 'portion', 'portions') + ' cooked and not accounted for (not eaten, not left) on ' + plural(a.unaccDays, 'day', 'days') + '.']);
+    if (a.unacc < 0) out.push([2, c, nm + ': ' + plural(-a.unacc, 'portion', 'portions') + ' more eaten and left than cooked: the portions cooked or counted are not right.']);
+    a.cookedOff.forEach(function (x) { out.push([2, c, nm + ', ' + dayName(x.date) + ': ' + x.cooked + ' portions cooked, menu of the week ' + x.plan + (x.why ? '. Why: "' + esc(x.why) + '"' : '') + '.']); });
+    if (!a.plan) out.push([2, c, nm + ': no menu of the week, so nothing to compare the food with.']);
+    if (!a.fridge) out.push([a.ended ? 1 : 3, c, nm + ': fridge ' + (a.ended ? 'not counted this week: the food missing cannot be checked.' : 'not counted yet this week.')]);
+    if (a.staffMiss) out.push([3, c, nm + ': kitchen staff who ate not written on ' + plural(a.staffMiss, 'day', 'days') + '.']);
+  });
+  return out.sort(function (x, y) { return x[0] - y[0]; });
+}
+SCREENS.overview = function () {
+  var db = view(), cs = canteens(db), wide = WIDE.matches, t = todayStr(), mon = S.week;
+  var accs = cs.map(function (c) { return eatAccount(db, c.id, mon, t); });
+  var sel = cs.some(function (c) { return c.id === S.ovC; }) ? S.ovC : '';
+  var tot = { eaten: 0, plan: 0, past: 0, done: 0, miss: 0, missP: 0, notes: 0, unacc: 0 };
+  accs.forEach(function (a) { tot.eaten += a.eaten; tot.plan += a.planP; tot.past += a.past; tot.done += a.done; tot.miss += a.missing.length; tot.unacc += a.unacc; a.missing.forEach(function (m) { tot.missP += m.portions || 0; }); tot.notes += a.notes; if (a.fridge) tot.fridges = (tot.fridges || 0) + 1; });
+  var notes = eatNotes(db, mon, eatAddDays(mon, 6)), gaps = eatNoteGaps(db);
+  var out = title('Overview') + weekBar();
+  /* the four numbers of the week */
+  out += '<div class="cyp-tiles ovtiles">' +
+    stat('Portions eaten', tot.eaten, tot.plan ? 'menu of the week: ' + nf(tot.plan) + ' on the same days' : 'counted this week') +
+    stat('Days complete', tot.done, 'of ' + plural(tot.past, 'day', 'days') + ' so far, all canteens') +
+    stat('Food missing', tot.miss, tot.miss ? 'foods short in the fridge' + (tot.missP ? ', about ' + nf(tot.missP) + ' portions' : '') : (tot.fridges ? 'in ' + plural(tot.fridges, 'fridge count', 'fridge counts') + ' of ' + cs.length + ' canteens' : 'no fridge counted yet this week')) +
+    stat('Delivery notes', notes.length, gaps.length ? 'numbers not saved: ' + esc(gapsText(gaps)) : 'this week') + '</div>';
+  /* the canteens: a verdict, the days, the portions, the fridge */
+  var rows = [], go = [], cards = '';
+  cs.forEach(function (c, i) {
+    var a = accs[i], nm = '<span class="' + placeClass(c.id) + ' ovname"><i class="cyp-swatch"></i>' + esc(shown(c.name)) + '</span>';
+    var por = a.eatenDays ? nf(a.eaten) + (a.planP ? ' of ' + nf(a.planP) : '') : '–', una = a.cookedDays ? (a.unacc ? tag(a.unacc > 0 ? 'warn' : '', sg(a.unacc)) : '0') : '–';
+    var fr = a.fridge ? (a.missing.length ? tag('danger', plural(a.missing.length, 'food', 'foods') + ' short') : tag('ok', WD[eatWeekday(a.fridge)])) : (a.ended ? tag('warn', 'Not counted') : 'Not yet');
+    rows.push([nm, verdictTag(a), dayDots(a), a.done + ' of ' + a.past, por, una, a.plan ? 'Yes' : tag('warn', 'No'), fr]); go.push(openAt(c));
+    cards += '<a href="#" class="cyp-card cyp-card--stack ovc ' + placeClass(c.id) + '" ' + openAt(c) + '><span class="ovc__head">' + nm + verdictTag(a) + goIc() + '</span>' + dayDots(a) +
+      '<dl class="cyp-kv"><div><dt>Days complete</dt><dd>' + a.done + ' of ' + a.past + '</dd></div><div><dt>Portions eaten</dt><dd>' + por + '</dd></div><div><dt>Not accounted</dt><dd>' + una + '</dd></div><div><dt>Fridge</dt><dd>' + fr + '</dd></div></dl></a>';
+  });
+  out += h2('Canteens this week') + (wide ? card(table([['Canteen'], ['Verdict'], ['Days (Mon to Sun)'], ['Complete', 1], ['Portions eaten', 1], ['Not accounted', 1], ['Menu of the week'], ['Fridge']], rows, null, { go: go })) : cards) +
+    small('<i class="dg dg--done"></i> complete · <i class="dg dg--part"></i> part written · <i class="dg dg--none"></i> nothing written · <i class="dg dg--absent"></i> nobody there or not counted. Portions eaten: counted + dinner and other places of the menu of the week + kitchen staff, against the menu of the week on the same days. Not accounted: cooked − eaten − left.');
+  /* what to check */
+  var ck = accChecks(db, cs, accs);
+  var byC = cs.map(function (c) { return ck.filter(function (x) { return x[1].id === c.id; }); });
+  out += h2('To check') + (ck.length ? list(cs.map(function (c, i) {
+    var xs = byC[i]; if (!xs.length) return '';
+    var top = xs[0][0], tg = top === 0 ? tag('danger', 'Food missing') : (top === 1 ? tag('warn', 'Check') : tag('', 'Ask'));
+    return row('', '<span class="' + placeClass(c.id) + ' ovname"><i class="cyp-swatch"></i>' + esc(shown(c.name)) + '</span>', '<ul class="ovck">' + xs.map(function (x) { return '<li class="ovck--' + x[0] + '">' + x[2].replace(esc(shown(c.name)) + ': ', '').replace(esc(shown(c.name)) + ', ', '') + '</li>'; }).join('') + '</ul>', '', tg);
+  }).join('')) : banner('ok', 'Nothing to check this week.'));
+  /* the food of the week, canteen by canteen: what came in, what the menu asked, what was taken out, a portion, the fridge */
+  var frows = [], fgo = [], fphone = '';
+  cs.forEach(function (c, i) {
+    var a = accs[i], lines = '';
+    db.items.forEach(function (it) {
+      var f = a.food[it.id]; if (!f || (!f.inn && !f.plan && !f.out && f.counted == null)) return;
+      var fr = f.counted === undefined ? (f.expected != null ? 'expected ' + fmt(f.expected) : '–') : (f.counted === null ? 'not counted' : (f.expected == null ? 'counted ' + fmt(f.counted) : fmt(f.expected) + ' → ' + fmt(f.counted) + (f.about ? ' (about)' : '')));
+      var df = f.diff == null ? '' : (f.diff < 0 ? tag('danger', fmt(f.diff)) : (f.diff > 0 ? tag('warn', '+' + fmt(f.diff)) : tag('ok', '0')));
+      frows.push([lines ? '' : '<span class="' + placeClass(c.id) + ' ovname"><i class="cyp-swatch"></i>' + esc(shown(c.name)) + '</span>', esc(it.name) + ' (' + esc(it.unit) + ')', f.inn ? fmt(f.inn) : '–', f.planDays ? fmt(f.plan) : '–', f.outDays ? fmt(f.out) : '–', useWords(it, f.per), fr, df]); fgo.push(openAt(c));
+      lines += row('', esc(it.name) + ' (' + esc(it.unit) + ')', 'Delivered ' + (f.inn ? fmt(f.inn) : '0') + ' · menu ' + (f.planDays ? fmt(f.plan) : '–') + ' · taken out ' + (f.outDays ? fmt(f.out) : '–') + ' · a portion ' + useWords(it, f.per) + ' · fridge ' + fr, '', df);
+    });
+    if (lines) fphone += h3('<span class="' + placeClass(c.id) + ' ovname"><i class="cyp-swatch"></i>' + esc(shown(c.name)) + '</span>') + list(lines);
+  });
+  out += h2('Food this week') + small('Delivered: the delivery notes. Menu: the menu of the week, on the days written so far. Taken out: the daily counts. Fridge: start + delivered − cooked = expected, then the count. A minus is food that is not there.') +
+    (frows.length ? (wide ? card(table([['Canteen'], ['Food'], ['Delivered', 1], ['Menu', 1], ['Taken out', 1], ['A portion', 1], ['Fridge'], ['Difference', 1]], frows, null, { go: fgo, dense: true })) : card(fphone)) : '<p class="muted">No food delivered or counted this week.</p>');
+  /* a portion, canteen against canteen: the same food should give about the same portion */
+  var prow3 = [];
+  db.items.forEach(function (it) {
+    var v = accs.map(function (a) { var f = a.food[it.id]; return f && f.per != null ? f.per : null; }), got = v.filter(function (x) { return x != null; });
+    if (!got.length) return; var avg = got.reduce(function (s, x) { return s + x; }, 0) / got.length;
+    prow3.push([esc(it.name)].concat(v.map(function (x) { return x == null ? '–' : (got.length > 1 && x > avg * 1.25 ? tag('warn', useWords(it, x)) : useWords(it, x)); })));
+  });
+  if (prow3.length) out += h2('A portion, canteen by canteen') + small('The food taken out for one portion this week. In yellow: a quarter or more above the other canteens.') + card(table([['Food']].concat(cs.map(function (c) { return [esc(shown(c.name)), 1]; })), prow3, null, { dense: true }));
+  /* the last four weeks */
+  var wk = [-21, -14, -7, 0].map(function (o) { return eatAddDays(mon, o); }), trows = [];
+  cs.forEach(function (c) {
+    trows.push(['<span class="' + placeClass(c.id) + ' ovname"><i class="cyp-swatch"></i>' + esc(shown(c.name)) + '</span>'].concat(wk.map(function (w) {
+      if (w > t) return '–'; var a = eatAccount(db, c.id, w, t);
+      if (!a.done && !a.part && !a.eaten && !a.fridge) return '<span class="muted">Nothing written' + (a.notes ? ' · ' + plural(a.notes, 'note', 'notes') : '') + '</span>';
+      return a.done + '/' + a.past + ' days · ' + nf(a.eaten) + ' portions' + (a.missing.length ? ' · ' + tag('danger', plural(a.missing.length, 'food', 'foods') + ' short') : (a.fridge ? ' · fridge ok' : ' · no fridge count'));
+    })));
+  });
+  out += h2('Last four weeks') + card(table([['Canteen']].concat(wk.map(function (w) { return ['Week of ' + dmy(w).slice(0, 5)]; })), trows, null, { dense: true }));
+  /* one canteen open: its days, the menu of the week against what happened, the fridge */
+  if (sel) {
+    var si = cs.map(function (c) { return c.id; }).indexOf(sel), a = accs[si], c = cs[si];
+    var drows = a.days.map(function (x) { return [dayName(x.date), DAYST[x.st][0] ? (x.st === 'done' ? tag('ok', 'Done') : (x.st === 'none' || x.st === 'part' ? tag('warn', DAYST[x.st][0]) : DAYST[x.st][0])) : '', x.eaten == null ? '–' : nf(x.eaten), x.plan == null ? '–' : nf(x.plan), x.cooked == null ? '–' : nf(x.cooked) + (x.why ? ' (' + esc(x.why) + ')' : ''), x.left == null ? '–' : nf(x.left), x.unacc == null ? '–' : (x.unacc ? tag('warn', sg(x.unacc)) : '0')]; });
+    out += '<div id="ovsel">' + h2('<span class="' + placeClass(c.id) + ' ovname"><i class="cyp-swatch"></i>' + esc(shown(c.name)) + '</span> day by day') +
+      card(table([['Day'], ['Written'], ['Eaten', 1], ['Menu of the week', 1], ['Cooked', 1], ['Left', 1], ['Not accounted', 1]], drows, null, { dense: true })) +
+      planCard(db, cs, sel, wide) + checkCard(db, sel, wide) + btn('Close ' + esc(shown(c.name)), 'data-a="ovAll"', '', 'x') + '</div>';
+  }
+  return out + '<div class="two">' + btn('Open the delivery notes', 'data-a="go" data-to="deliveries"', '', 'truck') + btn('Export all data in Excel', 'data-a="export"', '', 'down') + '</div>' +
+    '<p class="small muted center">CYP EAT ' + EAT_VERSION + (S.lastSync ? ' · updated ' + new Date(S.lastSync).toTimeString().slice(0, 5) : '') + '</p>';
+};
 
 /* ===================== entering a screen: fill the form from what is saved ===================== */
 function enter(scr) {
@@ -1623,7 +1757,7 @@ function enter(scr) {
     if (typeof dr === 'number') dr = { n: dr };
     var keepGrp = S.f && S.f.grp && centreGroups().indexOf(S.f.grp) >= 0 ? S.f.grp : '';
     var src = dr || (e ? e.data : { n: 0 });
-    S.f = { n: src.n || 0, g: JSON.parse(JSON.stringify(src.g || {})), grp: keepGrp, hist: [], done: !!src.done, skip: !!src.skip };
+    S.f = { n: src.n || 0, g: JSON.parse(JSON.stringify(src.g || {})), grp: keepGrp, hist: [], done: !!src.done, skip: !!src.skip, pf: JSON.parse(JSON.stringify(src.pf || {})), pk: S.f && S.f.pk ? S.f.pk : '' };
     if (dr && !samePeople(e, pData())) { S.pPend = { d: d, m: m, data: pData(), k: draftKey() }; clearTimeout(S.pTimer); S.pTimer = setTimeout(peopleFlush, 1500); }
   }
   if (scr === 'menu') {
@@ -1899,7 +2033,7 @@ A.meal = function (el) { peopleFlush(); S.meal = el.getAttribute('data-m'); ente
 function peopleChanged(inc) {
   var wasSkip = S.f.skip || S.f.askSkip;
   S.f.done = false; S.f.skip = false; S.f.askSkip = false; /* a change after Finish, or after "not counted", opens the count again */
-  if (inc) S.f.hist.push({ g: S.f.grp || '', k: inc });
+  if (inc) { S.f.hist.push({ g: S.f.grp || '', k: inc, p: curProtein() }); protAdd(inc); }
   var d = pData(), dr = KV.get('draft', {}); dr[draftKey()] = d; KV.set('draft', dr);
   S.pPend = { d: S.date, m: S.meal, data: d, k: draftKey() };
   clearTimeout(S.pTimer); S.pTimer = setTimeout(peopleFlush, 1500);
@@ -1920,6 +2054,7 @@ function peopleFlush() {
 function ringTap() { var b = document.querySelector('.tap'); if (!b) return; b.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit'); }
 A.tap = function () { vibrate(); ringTap(); setCount(curCount() + 1); peopleChanged(1); };
 A.grp = function (el) { S.f.grp = el.getAttribute('data-g'); S.keepScroll = true; render(); };
+A.prot = function (el) { S.f.pk = el.getAttribute('data-id'); S.keepScroll = true; render(); };
 A.add = function (el) { var k = Number(el.getAttribute('data-n')); vibrate(); ringTap(); setCount(curCount() + k); peopleChanged(k); };
 A.noCount = function () {
   if (eatPlates({ data: pData() }) > 0 && !S.f.askSkip) { S.f.askSkip = true; S.keepScroll = true; return render(); }
@@ -1936,7 +2071,7 @@ A.finish = function () {
 };
 A.adding = function () { S.f.adding = !S.f.adding; S.f.an = ''; S.keepScroll = true; render(); };
 A.addOk = function () { var k = Math.round(Number(S.f.an)); if (isFinite(k) && k > 0 && k < 2000) { setCount(curCount() + k); S.f.adding = false; peopleChanged(k); } S.keepScroll = true; render(); };
-A.undo = function () { var h = S.f.hist.length ? S.f.hist.pop() : { g: S.f.grp || '', k: 1 }; var keep = S.f.grp; S.f.grp = h.g; setCount(Math.max(0, curCount() - h.k)); peopleChanged(0); S.f.grp = keep; S.keepScroll = true; render(); };
+A.undo = function () { var h = S.f.hist.length ? S.f.hist.pop() : { g: S.f.grp || '', k: 1 }; var keep = S.f.grp; S.f.grp = h.g; setCount(Math.max(0, curCount() - h.k)); if (h.p) protAdd(-h.k, h.p); peopleChanged(0); S.f.grp = keep; S.keepScroll = true; render(); };
 A.typing = function () { S.f.typing = true; S.keepScroll = true; render(); };
 A.typeOk = function () { var n = Math.round(Number(S.f.tn)); if (isFinite(n) && n >= 0) { S.f.hist = []; setCount(n); peopleChanged(0); } S.f.typing = false; S.keepScroll = true; render(); };
 A.stepSkip = function (el) { var st = el.getAttribute('data-s'); if (!SKIPTXT[st]) return; setStepSkip(st, true); S.notice = ''; go('today'); S.good = SKIPTXT[st][1] + ' on ' + dayName(S.date) + '. It can still be added later.'; render(); };
@@ -1972,7 +2107,7 @@ A.nc = function (el) {
 /* ¼ ½ ¾: the whole number written, and that part; .0: the whole number only */
 A.frac = function (el) {
   var k = el.getAttribute('data-k'), v = Number(el.getAttribute('data-v')), cur = eatNum(S.f.q[k]) || 0;
-  var nv = Math.floor(cur) + v; S.f.q[k] = nv;
+  var nv = v ? Math.round((cur + v) * 1000) / 1000 : Math.floor(cur); S.f.q[k] = nv;
   var inp = document.getElementById('q_' + k); if (inp) inp.value = nv;
   liveUpdate();
 };
@@ -2088,7 +2223,7 @@ A.ovStart = function () { S.ovOn = true; S.anim = 'next'; render(); window.scrol
 A.ovSec = function (el) { var ids = OVSECS.map(function (x) { return x[0]; }), to = el.getAttribute('data-s'), was = ids.indexOf(S.ovSec || 'plates'); if (ids.indexOf(to) < 0 || ids.indexOf(to) === was) return; S.anim = ids.indexOf(to) < was ? 'prev' : 'next'; S.ovSec = to; render(); window.scrollTo(0, 0); };
 A.ovBack = function () { var ids = OVSECS.map(function (x) { return x[0]; }), was = ids.indexOf(S.ovSec || 'plates'); if (was > 0) { S.ovSec = ids[was - 1]; S.anim = 'prev'; } else S.ovOn = false; render(); window.scrollTo(0, 0); };
 A.ovCentreSel = function (el) { S.ovC = el.value; S.keepScroll = true; render(); };
-A.ovOpen = function (el) { S.ovC = el.getAttribute('data-id'); S.keepScroll = true; render(); };
+A.ovOpen = function (el) { S.ovC = el.getAttribute('data-id'); S.keepScroll = true; render(); var o = document.getElementById('ovsel'); if (o && o.scrollIntoView) o.scrollIntoView({ block: 'start' }); };
 A.ovAll = function () { S.ovC = ''; S.keepScroll = true; render(); };
 A.role = function (el) { S.f.role = el.getAttribute('data-r'); S.keepScroll = true; render(); };
 A.nameAdd = function () {
