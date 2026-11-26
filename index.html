@@ -89,6 +89,8 @@ textarea.cyp-input{min-height:calc(var(--touch-min) * 2);padding:var(--space-2) 
 .dinsplit .cyp-stat__figure { font-size: 2rem; line-height: 1.1; }
 /* beta 1.7: two buttons in the bar (Comment, Change access): on a phone the state of the data is its icon, the word stays for screen readers */
 @media (max-width: 520px) { .cyp-appbar__sync .synct { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; } }
+/* beta 1.8: the photo of the note above the form stays small, the form is the work */
+img.photo.rdimg { max-height: 180px; width: auto; max-width: 100%; display: block; margin: 0 auto var(--space-2); object-fit: contain; }
 </style>
 </head>
 <body>
@@ -459,6 +461,7 @@ function render() {
   /* numbers count once, when their page or chapter comes in */
   if (fresh || S.anim) countUp(app); S.anim = '';
   S.keepScroll = false; S.shown = scr; S.waiting = false;
+  if (S.sess && !app.querySelector('main .bk, main [data-a="ovBack"]') && !(S.scr === 'overview' && S.ovOn) && backTarget()) app.querySelector('main').insertAdjacentHTML('afterbegin', '<button class="cyp-btn start bk" data-a="histBack">' + ic('back') + 'Back</button>');
   if (!S.modal) { var af = app.querySelector('[data-focus]'); if (af) { try { af.focus({ preventScroll: true }); } catch (e) {} } }
 }
 /* new data from the database: do not redraw under someone who is typing */
@@ -481,7 +484,8 @@ if (window.visualViewport) { window.visualViewport.addEventListener('resize', vv
 function closeModal() { S.modal = null; drawModal(); if (S.waiting) render(); }
 var NAV = { plan: 'week', today: 'today', people: 'people', menu: 'today', before: 'today', after: 'today', week: 'week', startweek: 'week', endweek: 'week', deliveries: 'week', note: 'week', overview: 'overview', settings: 'settings', deliver: 'deliver', more: 'more' };
 /* More remembers the page the person came from and what was written on it: a comment is about that page, and Back returns to it with nothing lost */
-function go(scr) { peopleFlush(); if (scr === 'settings') S.setSec = ''; if (scr === 'more' && S.scr !== 'more') { S.from = S.scr; S.keepF = S.f; } S.scr = scr; S.f = {}; S.msg = ''; S.notice = ''; S.good = ''; enter(scr); render(); }
+function go(scr, back) { if (!back && S.sess && S.scr && S.scr !== scr) { S.hist = (S.hist || []).concat([S.scr]).slice(-20); try { history.pushState({ eat: 1 }, ''); } catch (e) {} }
+  peopleFlush(); if (scr === 'settings') S.setSec = ''; if (scr === 'more' && S.scr !== 'more') { S.from = S.scr; S.keepF = S.f; } S.scr = scr; S.f = {}; S.msg = ''; S.notice = ''; S.good = ''; enter(scr); render(); }
 
 function backFromMore(msg) {
   var to = S.from && SCREENS[S.from] ? S.from : (S.sess.mode === 'admin' ? 'overview' : (S.sess.mode === 'delivery' ? 'deliver' : 'today'));
@@ -779,7 +783,7 @@ function qRow(key, label, unit, val, nc, step, tog) {
     '<div class="cyp-stepper"><button class="cyp-btn" data-a="step" data-k="' + key + '" data-s="-' + step + '" aria-label="Less"' + dis + '>' + ic('minus') + '</button>' +
     '<input id="q_' + key + '" type="text" inputmode="decimal" autocomplete="off" placeholder="0" value="' + (nc || val == null ? '' : esc(String(val))) + '" data-q="' + key + '"' + dis + '>' +
     '<button class="cyp-btn cyp-btn--primary" data-a="step" data-k="' + key + '" data-s="' + step + '" aria-label="More"' + dis + '>' + ic('plus') + '</button></div>' +
-    (key === 'pcs' || key === 'pr' || nc || (S.f.u && S.f.u[key] === 'portion') ? '' : '<div class="four">' + [[0, '0'], [0.25, '¼'], [0.5, '½'], [0.75, '¾']].map(function (x) { return btn(x[0] ? '+' + x[1] : '.0', 'data-a="frac" data-k="' + key + '" data-v="' + x[0] + '" aria-label="' + (x[0] ? 'And ' + x[1] : 'Whole number') + '"'); }).join('') + '</div>') +
+    (key === 'pcs' || key === 'pr' || nc || (S.f.u && S.f.u[key] === 'portion') || (S.f.cu && S.f.cu[key] === 'pieces') ? '' : '<div class="four">' + [[0, '0'], [0.25, '¼'], [0.5, '½'], [0.75, '¾']].map(function (x) { return btn(x[0] ? '+' + x[1] : '.0', 'data-a="frac" data-k="' + key + '" data-v="' + x[0] + '" aria-label="' + (x[0] ? 'And ' + x[1] : 'Whole number') + '"'); }).join('') + '</div>') +
     (nc === undefined ? '' : choice('', [{ l: 'Not counted', on: !!nc, at: 'data-a="nc" data-k="' + key + '"' }], { many: true, aria: label + ': not counted' })) + (tog || '') + '</div>';
 }
 /* halves and quarters for what is weighed or comes in bags and trays; whole numbers for chickens, eggs, loaves */
@@ -911,8 +915,8 @@ SCREENS.note = function () {
   var db = view(), f = S.f, t = todayStr(), dl = S.sess.mode === 'delivery', pl = places(db), stock = db.items.filter(function (it) { return it.stock; });
   var others = pl.filter(function (c) { return c.id !== f.centre; });
   return backBtn(dl ? 'deliver' : 'deliveries', 'Delivery notes') +
-    title(f.orig ? 'Delivery note ' + esc(f.orig) : 'New delivery note') +
-    (f.photo ? '<a class="cyp-btn" target="_blank" rel="noopener" href="https://drive.google.com/file/d/' + esc(f.photo) + '/view">' + ic('camera') + 'See the photo of the note</a>' : '') +
+    title(f.orig ? 'Delivery note ' + esc(f.orig) : 'New delivery note') + rdBox(f) +
+    (f.photo && !(S.rd && f.rdId === S.rd.id) ? '<a class="cyp-btn" target="_blank" rel="noopener" href="https://drive.google.com/file/d/' + esc(f.photo) + '/view">' + ic('camera') + 'See the photo of the note</a>' : '') +
     card(field('Note number (the red number)', 'nno', '<input id="nno" class="cyp-input num" type="text" inputmode="numeric" autocomplete="off" data-f="no" value="' + esc(f.no) + '"' + (f.orig ? '' : ' data-focus') + '>') +
       field('Date on the note', 'ndt', '<input id="ndt" class="cyp-input" type="date" max="' + t + '" data-f="date" value="' + esc(f.date) + '">')) +
     card(pl.length > 3 ? selectField(dl ? 'Who is the note for?' : 'Centre', 'ncen', (f.centre ? [] : [['', 'Choose']]).concat(pl.map(function (c) { return [c.id, shown(c.name)]; })), f.centre, 'noteCentreSel')
@@ -938,8 +942,15 @@ function endPill(it, s) {
 function countScreen() {
   var db = view(), f = S.f, start = f.kind === 'startweek', mon = eatMonday(f.date), t = todayStr();
   var rows = db.items.filter(function (it) { return it.stock; }).map(function (it) {
-    /* the person only counts: what should be there, and the difference, are for the overview (comment of 20/11) */
-    return qRow(it.id, it.name, it.unit, f.q[it.id], !!f.nc[it.id], stepOf(it.unit));
+    /* the person only counts: what should be there, and the difference, are for the overview (comment of 20/11).
+       beta 1.8 (Mauro, 26/11): no scale in the canteens, so a food can be written as the cook sees it (chicken in cut pieces,
+       pork and fish in bags of about so many kg) and marked "about" */
+    var nc = !!f.nc[it.id], cu = countUnit(it), alts = countAlts(it), tog = '';
+    if (alts.length && !nc) tog += choice('', [['unit', it.unit]].concat(alts.map(function (a) { return [a, a]; })).map(function (x) { return { l: 'In ' + esc(x[1]), on: x[0] === cu, at: 'data-a="cunit" data-k="' + it.id + '" data-v="' + x[0] + '"' }; }), { aria: 'Unit for ' + it.name, name: 'cu_' + it.id });
+    if (cu === 'bags' && !nc) tog += field('1 bag of ' + esc(it.name.toLowerCase()) + ' = about how many kg?', 'bk_' + it.id, '<input id="bk_' + it.id + '" class="cyp-input num" type="text" inputmode="decimal" autocomplete="off" placeholder="0" data-f="bk_' + it.id + '" value="' + esc(f['bk_' + it.id] == null ? '' : String(f['bk_' + it.id])) + '">', 'Ask the cook, or lift one bag. The app keeps it for next week.');
+    if (cu !== 'unit' && !nc) tog += '<p class="small muted" id="cv_' + it.id + '">' + countConvLine(it) + '</p>';
+    if (!nc) tog += choice('', [{ l: 'About: not weighed, not counted one by one', on: !!f.ab[it.id], at: 'data-a="about" data-k="' + it.id + '"' }], { many: true, aria: it.name + ': about' });
+    return qRow(it.id, it.name, cu === 'unit' ? it.unit : cu, f.q[it.id], nc, cu === 'unit' ? stepOf(it.unit) : (cu === 'bags' ? 0.25 : 1), tog);
   }).join('');
   /* the days of a week a count can be on: Monday to Sunday, not after today */
   var days = [0, 1, 2, 3, 4, 5, 6].map(function (i) { var d = eatAddDays(mon, i); return [d, dayName(d), d > t]; });
@@ -948,6 +959,23 @@ function countScreen() {
     card(selectField('Day of the count', 'cday', days, f.date, 'countDaySel', dayName(f.date) + (start ? ', morning' : ', evening'))) +
     card(rows) +
     btn(start ? 'Save the start of the week' : 'Save and carry to next week', 'data-a="saveCount"', 'primary block');
+}
+
+/* the count of the fridge as the cook sees it: chicken also in cut pieces (10 in a chicken), foods kept in kg also in bags */
+var PIECES_IN_CHICKEN = 10;
+function countAlts(it) { return it.id === 'chk' ? ['pieces'] : (it.unit === 'kg' ? ['bags'] : []); }
+function countUnit(it) { var cu = (S.f.cu || {})[it.id]; return cu && countAlts(it).indexOf(cu) >= 0 ? cu : 'unit'; }
+/* what was written, in the unit of the store: pieces -> chickens, bags -> kg; null when it cannot be worked out yet */
+function countStore(it, cu, n, k) { if (n == null) return null; if (cu === 'pieces') return Math.round(n / PIECES_IN_CHICKEN * 1000) / 1000; if (cu === 'bags') return k > 0 ? Math.round(n * k * 1000) / 1000 : null; return n; }
+function countConvLine(it) {
+  var cu = countUnit(it), n = eatNum(S.f.q[it.id]), k = eatNum(S.f['bk_' + it.id]), v = countStore(it, cu, n, k);
+  if (cu === 'bags' && !(k > 0)) return 'Write about how many kg one bag holds.';
+  return v == null ? (cu === 'pieces' ? PIECES_IN_CHICKEN + ' pieces = 1 chicken.' : '') : '= about ' + fmt(v) + ' ' + esc(it.unit);
+}
+/* the kg of one bag of a food at a centre: from its last count written in bags */
+function lastBagKg(db, c, id) {
+  var last = null; db.entries.forEach(function (e) { if (e.del || (e.type !== 'endweek' && e.type !== 'startweek') || e.centre !== c || !e.data.alt || !e.data.alt[id] || !e.data.alt[id].k) return; if (!last || e.date > last.date) last = e; });
+  return last ? last.data.alt[id].k : null;
 }
 SCREENS.startweek = countScreen;
 SCREENS.endweek = countScreen;
@@ -1389,9 +1417,9 @@ function checkCard(db, c, wide) {
     else if (x.diff < 0) { pill = tag('danger', esc(qtyUnit(-x.diff, it.unit)) + ' missing'); miss++; }
     else pill = tag('warn', esc(qtyUnit(x.diff, it.unit)) + ' more');
     if (x.expected == null) why = x.start == null ? 'there is no count before this week' : (it.unit !== it.use && !it.per ? 'set how much is in one ' + unitOne(it.unit) + ' (Settings, Food and units)' : 'a daily count is not complete');
-    var sum = 'Start ' + (x.start == null ? '?' : fmt(x.start)) + ' + delivered ' + fmt(x.inn) + ' − cooked ' + fmt(x.used) + ' = expected <strong>' + (x.expected == null ? '?' : fmt(x.expected)) + '</strong>' + (x.counted === undefined ? '' : (x.counted === null ? ' · not counted at the end' : ' · counted <strong>' + fmt(x.counted) + '</strong>'));
+    var sum = 'Start ' + (x.start == null ? '?' : fmt(x.start)) + ' + delivered ' + fmt(x.inn) + ' − cooked ' + fmt(x.used) + ' = expected <strong>' + (x.expected == null ? '?' : fmt(x.expected)) + '</strong>' + (x.counted === undefined ? '' : (x.counted === null ? ' · not counted at the end' : ' · counted <strong>' + (x.about ? 'about ' : '') + fmt(x.counted) + '</strong>'));
     rows += row('', esc(it.name) + ' (' + esc(it.unit) + ')', sum + (why ? ' · Expected not known: ' + why + '.' : ''), '', pill);
-    trs.push([esc(it.name), esc(it.unit), x.start == null ? '?' : fmt(x.start), fmt(x.inn), fmt(x.used), x.expected == null ? '?' : fmt(x.expected), x.counted === undefined ? 'Not yet' : (x.counted === null ? 'Not counted' : fmt(x.counted)), (x.diff == null ? '' : fmt(x.diff) + ' ') + pill + (why ? '<br>Expected not known: ' + why + '.' : '')]);
+    trs.push([esc(it.name), esc(it.unit), x.start == null ? '?' : fmt(x.start), fmt(x.inn), fmt(x.used), x.expected == null ? '?' : fmt(x.expected), x.counted === undefined ? 'Not yet' : (x.counted === null ? 'Not counted' : (x.about ? 'about ' : '') + fmt(x.counted)), (x.diff == null ? '' : fmt(x.diff) + ' ') + pill + (why ? '<br>Expected not known: ' + why + '.' : '')]);
   });
   var head = small((w.startCounted ? 'Start: counted ' + dayName(w.startDate) : (w.startDate ? 'Start: the stock on Monday morning, from the count of ' + dayName(w.startDate) : 'Start: no count before this week')) + '. ' +
     (w.endDate ? 'End: counted ' + dayName(w.endDate) : 'End: not counted yet') + '. Daily food counted on ' + w.daysFood + ' of ' + plural(w.days, 'day', 'days') + (w.daysSkipped ? ' (' + w.daysSkipped + ' marked not counted)' : '') + '.');
@@ -1580,6 +1608,8 @@ function enter(scr) {
     var sun = eatAddDays(S.week, 6), t = todayStr();
     e = eatWeekCount(db, c, S.week, scr);
     S.f = { kind: scr, date: e ? e.date : (scr === 'startweek' ? S.week : sameDay(db, c, S.week, sun < t ? sun : t)), q: e ? JSON.parse(JSON.stringify(e.data.q)) : {}, nc: e ? JSON.parse(JSON.stringify(e.data.nc || {})) : {} };
+    S.f.cu = {}; S.f.ab = e && e.data.ab ? JSON.parse(JSON.stringify(e.data.ab)) : {};
+    db.items.forEach(function (it) { var a = e && e.data.alt ? e.data.alt[it.id] : null; if (a) { S.f.cu[it.id] = a.u; S.f.q[it.id] = a.n; if (a.k) S.f['bk_' + it.id] = a.k; } else if (it.unit === 'kg') { var lk = lastBagKg(db, c, it.id); if (lk) S.f['bk_' + it.id] = lk; } });
   }
 }
 function defaultMeal() {
@@ -1599,7 +1629,7 @@ function startSession() {
   enter(S.scr); render(); sync();
   setTimeout(installAsk, 1500);
 }
-function signOut(msg) { S.sess = null; KV.del('sess'); S.scr = 'signin'; S.pin = ''; S.msg = msg || ''; S.notice = msg || ''; render(); }
+function signOut(msg) { S.hist = []; S.sess = null; KV.del('sess'); S.scr = 'signin'; S.pin = ''; S.msg = msg || ''; S.notice = msg || ''; render(); }
 
 /* ===================== actions ===================== */
 var A = {};
@@ -1623,9 +1653,50 @@ A.photo = function (el) {
   shrinkPhoto(f, function (url) {
     try { el.value = ''; } catch (e) {}
     if (!url) return dvError('Not read', 'This picture cannot be opened. Take the picture again.', false);
-    S.dv = { step: 'reading', img: url, data: url.split(',')[1] }; dvRead();
+    var rd = S.rd = { img: url, data: url.split(',')[1], state: navigator.onLine ? 'reading' : 'offline', t0: Date.now(), id: uid(), i: 0, saved: [] };
+    S.dv = { step: 'start' }; S.dvBack = null; S.notePre = null; S.noteNo = ''; go('note'); S.f.rdId = rd.id; render(); rdRead(rd);
   });
 };
+function rdRead(rd) {
+  if (rd.state === 'offline') return;
+  clearInterval(S.rdTick); S.rdTick = setInterval(function () { var el = document.getElementById('rdsec'); if (el && S.rd === rd && rd.state === 'reading') el.textContent = Math.round((Date.now() - rd.t0) / 1000); else if (rd.state !== 'reading') clearInterval(S.rdTick); }, 1000);
+  post({ action: 'read', mode: S.sess.mode, cred: S.sess.cred, image: rd.data }, 90000).then(function (res) {
+    if (res && res.error === 'pin') return signOut('The deliveries PIN has changed. Sign in again.');
+    if (res && res.photo) rd.photo = res.photo;
+    var all = res && res.ok ? (res.reads || [res.read || {}]) : [];
+    rd.reads = all.filter(function (r) { var hq = false; for (var k in (r.q || {})) hq = true; return r.no || r.centre || hq; });
+    rd.state = rd.reads.length ? 'read' : 'failed';
+    rd.why = res && !res.ok ? ({ no_reader: 'the photo reader is not set up', reader_busy: 'the photo reader is busy', reader_key: 'the key of the photo reader is wrong' }[res.error] || 'the photo reader gave an error') : (rd.reads.length ? '' : 'the photo is not clear');
+    rdApply(rd);
+  }).catch(function (e) { rd.state = 'failed'; rd.why = e && e.message === 'timeout' ? 'it took more than 90 seconds' : 'no internet'; rdApply(rd); });
+}
+function rdApply(rd) {
+  /* the note was saved before the reading came back: the photo is added to it */
+  if (rd.savedNo && rd.photo) { var n = eatNote(view(), rd.savedNo); if (n && !n.data.photo) { var d = JSON.parse(JSON.stringify(n.data)); d.photo = rd.photo; queueNote(n.centre, n.date, d); } rd.savedNo = ''; }
+  var f = S.f;
+  if (S.scr === 'note' && f && f.rdId === rd.id) { if (rd.photo) f.photo = rd.photo; if (rd.reads && rd.reads[rd.i]) rdFill(f, rd.reads[rd.i]);
+    /* the form is redrawn at once, also while someone types in it: what was typed is in S.f, and the box keeps the focus */
+    var ae = document.activeElement, aid = ae && ae.id && (ae.tagName === 'INPUT' || ae.tagName === 'SELECT') ? ae.id : ''; S.keepScroll = true; if (!S.modal) render(); if (aid) { var ne = document.getElementById(aid); if (ne) { try { ne.focus({ preventScroll: true }); } catch (x) {} } } }
+}
+/* what the photo says goes only where the form is still empty: what the person wrote stays */
+function rdFill(f, r) {
+  if (!f.no && r.no) f.no = String(r.no);
+  if (r.date && r.date <= todayStr() && (!f.date || f.date === todayStr())) f.date = r.date;
+  if (!f.centre && r.centre) f.centre = r.centre;
+  var anyq = false; for (var k in (f.q || {})) if (eatNum(f.q[k]) != null) anyq = true;
+  if (!anyq && r.q) f.q = JSON.parse(JSON.stringify(r.q));
+  if (!(f.parts || []).length && r.parts) f.parts = JSON.parse(JSON.stringify(r.parts));
+  if (!f.remark && r.remark) f.remark = r.remark;
+  if (!f.recv && r.recv) f.recv = r.recv;
+}
+function rdBox(f) {
+  var rd = S.rd; if (!rd || f.rdId !== rd.id) return '';
+  var img = '<img class="photo rdimg" src="' + rd.img + '" alt="The photo of the delivery note">';
+  if (rd.state === 'reading') return img + '<p role="status" class="small">Reading the photo… <strong class="num" id="rdsec">' + Math.round((Date.now() - rd.t0) / 1000) + '</strong> s. You can write the note meanwhile.</p>';
+  if (rd.state === 'offline') return img + banner('warn', 'No internet: write the note by hand. The photo is not sent.');
+  if (rd.state === 'failed') return img + banner('warn', 'The photo could not be read (' + esc(rd.why) + '). Write the note here' + (rd.photo ? ': the photo is kept with it.' : '.'));
+  return img + banner('warn', 'Filled in from the photo: check every number with the paper.' + (rd.reads.length > rd.i + 1 ? ' The photo has ' + rd.reads.length + ' notes: the next one opens after you save this one.' : ''));
+}
 A.dvRetry = function () { if (S.dv && S.dv.data) dvRead(); };
 A.say = function () { try { speechSynthesis.cancel(); var u = new SpeechSynthesisUtterance('The picture says: ' + S.dv.sentence + ' Is this correct?'); u.lang = 'en-GB'; u.rate = 0.9; speechSynthesis.speak(u); } catch (e) {} };
 /* by hand: an empty note, or the note the picture gave, to correct. Tapping a note saved today opens it */
@@ -1750,7 +1821,7 @@ A.key = function (el) {
 };
 function remember() { KV.set('sess', S.sess); KV.set('me', { nid: S.sess.nid, name: S.sess.name, centre: S.sess.centre }); }
 A.pickName = function (el) { var n = eatFind(view().names, el.getAttribute('data-id')); S.sess.nid = n.id; S.sess.name = n.name; S.sess.centre = ''; KV.set('sess', S.sess); S.scr = 'centre'; render(); };
-A.pickCentre = function (el) { S.sess.centre = el.getAttribute('data-id'); remember(); S.meal = defaultMeal(); var to = S.afterCentre || 'today'; S.afterCentre = ''; go(to); };
+A.pickCentre = function (el) { S.hist = []; S.sess.centre = el.getAttribute('data-id'); remember(); S.meal = defaultMeal(); var to = S.afterCentre || 'today'; S.afterCentre = ''; go(to); };
 A.who = function () { peopleFlush(); S.afterCentre = ''; S.scr = 'name'; render(); };
 A.signout = function () { signOut(''); };
 A.centreAsk = function () { peopleFlush(); S.afterCentre = S.scr === 'people' ? 'people' : 'today'; S.scr = 'centre'; S.f = {}; render(); };
@@ -1758,7 +1829,7 @@ A.dayAsk = function () { peopleFlush(); askDay(true); render(); };
 A.calDay = function (el) { var d = el.getAttribute('data-d'); if (!eatIsDate(d) || d > todayStr()) return; S.pick = d; S.keepScroll = true; render(); };
 A.calMonth = function (el) { var y = Number(S.calM.slice(0, 4)), m = Number(S.calM.slice(5, 7)) - 1 + Number(el.getAttribute('data-d')); var dt = new Date(Date.UTC(y, m, 1)).toISOString().slice(0, 8) + '01'; if (dt > todayStr()) return; S.calM = dt; S.keepScroll = true; render(); };
 A.calToday = function () { S.pick = todayStr(); S.calM = S.pick.slice(0, 8) + '01'; S.keepScroll = true; render(); };
-A.dayConfirm = function () {
+A.dayConfirm = function () { S.hist = [];
   var d = S.pick || todayStr(); S.dayOk = true;
   /* the same day: what the person was writing stays; another day: its numbers are read */
   if (d !== S.date) { peopleFlush(); S.date = d; S.week = eatMonday(d); fixMeal(); enter(S.scr); }
@@ -1857,6 +1928,7 @@ A.step = function (el) {
   liveUpdate();
 };
 function liveUpdate() {
+  if (S.scr === 'endweek' || S.scr === 'startweek') view().items.forEach(function (it) { var cv = document.getElementById('cv_' + it.id); if (cv) cv.innerHTML = countConvLine(it); });
   var bal = document.getElementById('bal'); if (bal && S.scr === 'after') bal.innerHTML = balanceHtml();
   var dn = document.getElementById('din'); if (dn && S.scr === 'after') { var dv = dinnerPlanned(view(), S.sess.centre, S.date); if (dv != null) dn.innerHTML = dinnerSplit(dv, eatNum(S.f.q.pr)); }
   if (S.scr === 'endweek' || S.scr === 'startweek') { var st = eatStock(view(), S.sess.centre, S.f.date, S.scr === 'startweek'); view().items.forEach(function (it) { var box = document.getElementById('d_' + it.id); if (box && st[it.id]) box.innerHTML = endPill(it, st[it.id]); }); }
@@ -1907,6 +1979,12 @@ A.noteSave = function () {
   /* a new number for the same paper note: the old number is removed */
   if (f.orig && f.orig !== no) { var old = eatNote(db, f.orig); if (old) queueNote(old.centre, old.date, { no: old.data.no, q: old.data.q, days: old.data.days, remark: old.data.remark, recv: old.data.recv, off: true }); }
   queueNote(f.centre, f.date, { no: no, q: q, parts: (f.parts || []).filter(function (pt) { return pt.to !== f.centre; }), days: f.days || null, remark: (f.remark || '').trim(), recv: (f.recv || '').trim(), photo: f.photo || '' });
+  var rd = f.rdId && S.rd && S.rd.id === f.rdId ? S.rd : null;
+  if (rd) {
+    rd.saved.push(no); if (!f.photo) rd.savedNo = no; rd.i++;
+    if (rd.reads && rd.i < rd.reads.length) { S.noteNo = ''; S.notePre = null; go('note'); S.f.rdId = rd.id; if (rd.photo) S.f.photo = rd.photo; rdFill(S.f, rd.reads[rd.i]); S.good = 'Note ' + no + ' saved. Now the next note of the photo.'; return render(); }
+    if (dl) { S.dv = { step: 'saved', nos: rd.saved, unclear: 0 }; return go('deliver'); }
+  }
   if (dl) {
     /* back to the photos: the next note of the same picture, or the thank you */
     var v = S.dvBack; S.dvBack = null;
@@ -1925,8 +2003,19 @@ A.noteOff = function () {
 A.saveCount = function () {
   var db = view(), f = S.f, miss = db.items.filter(function (it) { return it.stock && !f.nc[it.id] && eatNum(f.q[it.id]) == null; }).map(function (it) { return it.name; });
   if (miss.length) { S.notice = 'Write a number or tap Not counted: ' + miss.join(', ') + '.'; return render(); }
-  saveEntry(f.kind, '', qData(), f.date); S.notice = ''; go('week');
-  S.good = (f.kind === 'startweek' ? 'Start of the week' : 'End of the week') + ' saved, ' + dayName(f.date) + '.'; render();
+  var d = qData(), alt = {}, ab = {}, anyAlt = false, anyAb = false, bad = [];
+  db.items.forEach(function (it) {
+    if (!it.stock || f.nc[it.id]) return;
+    if (f.ab[it.id]) { ab[it.id] = true; anyAb = true; }
+    var cu = countUnit(it); if (cu === 'unit') return;
+    var n = eatNum(f.q[it.id]), k = cu === 'bags' ? eatNum(f['bk_' + it.id]) : null;
+    if (cu === 'bags' && !(k > 0)) { bad.push(it.name); return; }
+    alt[it.id] = cu === 'bags' ? { n: n, u: 'bags', k: k } : { n: n, u: 'pieces' }; anyAlt = true; d.q[it.id] = countStore(it, cu, n, k);
+  });
+  if (bad.length) { S.notice = 'Write about how many kg one bag holds: ' + bad.join(', ') + '.'; return render(); }
+  if (anyAb) d.ab = ab; if (anyAlt) d.alt = alt;
+  saveEntry(f.kind, '', d, f.date); S.notice = ''; go('week');
+  S.good = (f.kind === 'startweek' ? 'Start of the week' : 'Stock in the fridge') + ' saved, ' + dayName(f.date) + '.'; render();
 };
 A.countDaySel = function (el) { if (eatIsDate(el.value) && el.value <= todayStr()) S.f.date = el.value; S.keepScroll = true; render(); };
 A.daysSel = function (el) { S.f.days = Number(el.value) || null; S.keepScroll = true; render(); };
@@ -1999,6 +2088,28 @@ function sameDay(db, c, mon, dflt) {
   var last = null; db.entries.forEach(function (e) { if (!e.del && e.type === 'endweek' && e.centre === c && e.date < mon && (!last || e.date > last.date)) last = e; });
   if (!last) return dflt; var d = eatAddDays(mon, (eatWeekday(last.date) + 6) % 7); return d <= todayStr() ? d : dflt;
 }
+A.cunit = function (el) { S.f.cu[el.getAttribute('data-k')] = el.getAttribute('data-v'); S.keepScroll = true; render(); };
+A.about = function (el) { var k = el.getAttribute('data-k'); S.f.ab[k] = !S.f.ab[k]; S.keepScroll = true; render(); };
+/* back: the screen before; on the first screen of the day, the choice of the day; then the centre, the name, the first page */
+function backTarget() {
+  var gate = needDay();
+  if (gate) return 'centre';
+  if (S.scr === 'name') return 'signin';
+  var h = (S.hist || []).filter(function (x) { return x !== S.scr && SCREENS[x] && ['pin', 'signin', 'name', 'centre'].indexOf(x) < 0; });
+  if (h.length) return h[h.length - 1];
+  if (S.sess.mode === 'entry' && DAYSCR[S.scr]) return 'day';
+  return '';
+}
+A.histBack = function () {
+  var to = backTarget(); if (!to) return;
+  if (to === 'signin') return signOut('');
+  if (to === 'day') { askDay(true); S.hist = []; return render(); }
+  if (to === 'centre') { S.hist = []; return go('centre', true); }
+  while (S.hist && S.hist.length && S.hist[S.hist.length - 1] !== to) S.hist.pop();
+  if (S.hist) S.hist.pop();
+  go(to, true);
+};
+window.addEventListener('popstate', function () { if (S.sess && !S.modal && backTarget()) A.histBack(); });
 A.cleft = function (el) { var c = eatCentre(view(), el.getAttribute('data-id')); queue({ kind: 'centre_left', cid: c.id, on: !c.left }); S.keepScroll = true; render(); };
 A.cmeal = function (el) {
   var c = eatCentre(view(), el.getAttribute('data-id')), m = el.getAttribute('data-m'), ms = c.meals.slice(), i = ms.indexOf(m);
@@ -2163,7 +2274,7 @@ function exportXlsx() {
       noteRow(c, own, e.data.remark);
       (e.data.parts || []).forEach(function (pt) { noteRow(shown(pt.name), pt.q, 'Part of the note for ' + c); });
     }
-    if (e.type === 'endweek' || e.type === 'startweek') { var st = eatStock(db, e.centre, e.date, e.type === 'startweek'); for (var k in e.data.q) { var x = st[k], cnt = e.data.q[k]; if (!eatItem(db, k)) continue; end.rows.push([e.date, WD[eatWeekday(e.date)], c, e.type === 'startweek' ? 'Start of the week' : 'End of the week', eatItem(db, k).name, x ? x.expected : '', cnt == null ? 'Not counted' : cnt, cnt != null && x && x.expected != null ? Math.round((cnt - x.expected) * 100) / 100 : '', eatItem(db, k).unit, e.byName]); } }
+    if (e.type === 'endweek' || e.type === 'startweek') { var st = eatStock(db, e.centre, e.date, e.type === 'startweek'); for (var k in e.data.q) { var x = st[k], cnt = e.data.q[k]; if (!eatItem(db, k)) continue; end.rows.push([e.date, WD[eatWeekday(e.date)], c, e.type === 'startweek' ? 'Start of the week' : 'End of the week', eatItem(db, k).name, x ? x.expected : '', cnt == null ? 'Not counted' : cnt, cnt != null && x && x.expected != null ? Math.round((cnt - x.expected) * 100) / 100 : '', eatItem(db, k).unit + (e.data.ab && e.data.ab[k] ? ' (about)' : '') + (e.data.alt && e.data.alt[k] ? ' (written: ' + e.data.alt[k].n + ' ' + e.data.alt[k].u + (e.data.alt[k].k ? ' of about ' + e.data.alt[k].k + ' kg' : '') + ')' : ''), e.byName]); } }
   });
   var stock = { name: 'In the store now', head: ['Centre', 'Item', 'Last count', 'Date of the count', 'Delivered since', 'Used since', 'Now (expected)', 'Unit'], rows: [] };
   canteens(db).forEach(function (c) { var st = eatStock(db, c.id, todayStr()); db.items.forEach(function (it) { var s = st[it.id]; if (s) stock.rows.push([shown(c.name), it.name, s.start, s.startDate || '', s.inn, s.used, s.expected, it.unit]); }); });
@@ -2203,7 +2314,7 @@ document.addEventListener('keydown', function (ev) {
 });
 document.addEventListener('input', function (ev) {
   var el = ev.target;
-  if (el.hasAttribute('data-f')) S.f[el.getAttribute('data-f')] = el.value;
+  if (el.hasAttribute('data-f')) { S.f[el.getAttribute('data-f')] = el.value; if (el.getAttribute('data-f').indexOf('bk_') === 0) liveUpdate(); }
   if (el.hasAttribute('data-pl')) plSet(el.getAttribute('data-pl'), el.value);
   if (el.hasAttribute('data-mv')) S.f.meals[el.getAttribute('data-mv')][el.getAttribute('data-k')] = el.value;
   if (el.hasAttribute('data-q')) { var k = el.getAttribute('data-q'); if (k === 'kept') S.f.kept = el.value; else S.f.q[k] = el.value; liveUpdate(); }
