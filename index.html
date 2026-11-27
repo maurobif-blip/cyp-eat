@@ -95,8 +95,9 @@ img.photo.rdimg { max-height: 180px; width: auto; max-width: 100%; display: bloc
 .dgrid { display: inline-flex; gap: 3px; vertical-align: middle; }
 .dg { display: inline-block; width: 22px; height: 22px; border-radius: 4px; background: var(--surface-soft); border: 1px solid var(--line); font: 600 12px/20px var(--font-text); text-align: center; font-style: normal; color: var(--ink-muted); }
 .dg--done { background: var(--ok); border-color: var(--ok); color: #fff; }
-.dg--part { background: var(--yellow); border-color: var(--yellow); color: var(--navy); }
-.dg--none { background: var(--danger); border-color: var(--danger); color: #fff; }
+/* beta 1.12 (Mauro, 26/11: too much alarm): a day not written is a gap, not a finding: no red, no yellow. Part written: a green frame; nothing written: a grey frame */
+.dg--part { background: transparent; border: 2px solid var(--ok); color: var(--ok); line-height: 18px; }
+.dg--none { background: transparent; border: 2px solid var(--ink-muted); color: var(--ink-muted); line-height: 18px; }
 .dg--absent, .dg--skip { background: var(--ink-muted); border-color: var(--ink-muted); color: #fff; }
 .dg--today { border: 2px solid var(--blue); color: var(--blue); }
 p .dg { width: 12px; height: 12px; vertical-align: -1px; font-size: 0; }
@@ -350,7 +351,7 @@ function staffOf(db, c, d) { var e = eatGet(db, 'staff', c, d, ''); return e ? e
 /* who ate the food taken out on a day, in words: counted, from the plan, cooked for other places, kitchen staff */
 function ateWords(db, c, d, u) {
   var fx = 0, parts = [], cm = eatCentre(db, c), ms = cm ? cm.meals : [];
-  ms.forEach(function (m) { if (eatFixed(db, c, m) != null) { var pf = planOrFixed(db, c, d, m); if (pf[0]) { fx += pf[0]; parts.push(pf[0] + ' ' + (m === 'Dinner' ? 'dinner (sapa)' : m.toLowerCase()) + (pf[1] ? ' in the plan' : '')); } } });
+  ms.forEach(function (m) { if (eatFixed(db, c, m) != null) { var pf = planOrFixed(db, c, d, m); if (pf[0]) { fx += pf[0]; parts.push(pf[0] + ' ' + (m === 'Dinner' ? 'dinner (sapa)' : m.toLowerCase()) + (pf[1] ? ' in the menu of the week' : '')); } } });
   if (u.plates - fx > 0) parts.unshift((u.plates - fx) + ' counted');
   if (u.cooked) parts.push(u.cooked + ' for ' + othersWords(db, c, d));
   if (u.staff) parts.push(u.staff + ' kitchen staff');
@@ -687,14 +688,14 @@ SCREENS.people = function () {
   var all = countMeals().map(function (m) {
     var p = eatGet(db, 'people', c, S.date, m), ms = m === S.meal ? st : savedState(p), pl = m === S.meal ? eatPlates({ data: pData() }) : (p ? eatPlates(p) : 0);
     return row('', m, ms === 'none' || ms === 'skip' ? '' : plural(pl, 'portion', 'portions'), tag(STPILL[ms], STLAB[ms]));
-  }).join('') + fixedMeals().map(function (m) { var pf = planOrFixed(db, c, S.date, m); return linkRow('', m, pf[0] + (pf[1] ? ' portions in the plan of the week' : ' portions every day') + ' · not counted' + (m === 'Dinner' && eatDinLeft(db, c) ? ' · eats the leftovers of lunch' : '') + ' · change it in the plan', 'data-a="planGo"'); }).join('') +
-    othersOf(db, c, S.date).map(function (x) { return linkRow('', 'For ' + esc(x.name), x.n + ' portions in the plan of the week · cooked here, not counted', 'data-a="planGo"'); }).join('') +
-    (fixedMeals().length ? linkRow('clip', 'Other places cooked for here', 'Chinika, Ukubalula: write them in the plan of the week', 'data-a="planGo"') : '');
+  }).join('') + fixedMeals().map(function (m) { var pf = planOrFixed(db, c, S.date, m); return linkRow('', m, pf[0] + (pf[1] ? ' portions in the menu of the week' : ' portions every day') + ' · not counted' + (m === 'Dinner' && eatDinLeft(db, c) ? ' · eats the leftovers of lunch' : '') + ' · change it in the menu of the week', 'data-a="planGo"'); }).join('') +
+    othersOf(db, c, S.date).map(function (x) { return linkRow('', 'For ' + esc(x.name), x.n + ' portions in the menu of the week · cooked here, not counted', 'data-a="planGo"'); }).join('') +
+    (fixedMeals().length ? linkRow('clip', 'Other places cooked for here', 'Chinika, Ukubalula: write them in the menu of the week', 'data-a="planGo"') : '');
   var grp = gs.length ? choice('', [''].concat(gs).map(function (k) { return { l: esc(k || centreName(c)) + ' <b class="num">' + (k ? (S.f.g[k] || 0) : S.f.n) + '</b>', on: (S.f.grp || '') === k, at: 'data-a="grp" data-g="' + esc(k) + '"' }; }), { aria: 'Who eats', name: 'grp' }) : '';
   var pks = dayProteins(), pk = curProtein();
-  var prot = pks.length > 1 ? choice('Protein of the portions you count now', pks.map(function (id) { return { l: esc(eatItem(db, id).name) + ' <b class="num" data-pfn="' + id + '">' + ((S.f.pf || {})[id] || 0) + '</b>', on: id === pk, at: 'data-a="prot" data-id="' + id + '"' }; }), { name: 'prot' }) + small('Out of one protein? Switch here and go on counting: each portion counts for the protein chosen.') : '';
+  var prot = pks.length > 1 ? choice('Protein of the portions you count now', pks.map(function (id) { return { l: esc(protName(db, id)) + ' <b class="num" data-pfn="' + id + '">' + ((S.f.pf || {})[id] || 0) + '</b>', on: id === pk, at: 'data-a="prot" data-id="' + id + '"' }; }), { name: 'prot' }) + small('Out of one protein? Switch here and go on counting: each portion counts for the protein chosen.') : '';
   return dayBar() + mealSeg() + grp + prot +
-    '<div class="tapbox"><button class="tap s-' + st + '" data-a="tap" aria-label="Add one portion' + (S.f.grp ? ' for ' + esc(S.f.grp) : '') + (pk && pks.length > 1 ? ', ' + esc(eatItem(db, pk).name.toLowerCase()) : '') + '"><span class="num big" id="cnt">' + n + '</span><span class="heading-2">' + (S.f.grp ? esc(S.f.grp) + ': +1' : (pk && pks.length > 1 ? esc(eatItem(db, pk).name) + ': +1' : 'Tap: +1')) + '</span></button></div>' +
+    '<div class="tapbox"><button class="tap s-' + st + '" data-a="tap" aria-label="Add one portion' + (S.f.grp ? ' for ' + esc(S.f.grp) : '') + (pk && pks.length > 1 ? ', ' + esc(protName(db, pk).toLowerCase()) : '') + '"><span class="num big" id="cnt">' + n + '</span><span class="heading-2">' + (S.f.grp ? esc(S.f.grp) + ': +1' : (pk && pks.length > 1 ? esc(protName(db, pk)) + ': +1' : 'Tap: +1')) + '</span></button></div>' +
     (countMeals().length < 2 ? '<p class="heading-3 center">' + S.meal + ' · ' + esc(centreName(c)) + '</p>' : '') +
     '<div class="pst" id="pst" aria-live="polite">' + peopleStatus() + '</div>' +
     '<div class="three">' + btn('+5', 'data-a="add" data-n="5"') + btn('+10', 'data-a="add" data-n="10"') + btn('Other', 'data-a="adding"') + '</div>' +
@@ -723,7 +724,13 @@ function staffCard(db, c) {
    in the menu of the day, the person chooses the protein and counts; each change of the count goes to the protein chosen (pf) */
 function dayProteins() {
   var dm = eatDayMenu(view(), S.sess.centre, S.date), x = dm.saved ? dm.meals[S.meal] || dm.meals.Lunch : null;
-  return x && x.relish ? x.relish.filter(function (id) { var it = eatItem(view(), id); return it && it.relish; }) : [];
+  /* beta 1.13: "Other" of the menu of the day counts its portions apart too */
+  return x && x.relish ? x.relish.filter(function (id) { var it = eatItem(view(), id); return it && it.relish; }).concat(x.other ? [EAT_OTHER] : []) : [];
+}
+/* the name of a protein of the day: the food, or what "Other" is */
+function protName(db, id) {
+  if (id !== EAT_OTHER) { var it = eatItem(db, id); return it ? it.name : id; }
+  var dm = eatDayMenu(db, S.sess.centre, S.date), x = dm.meals[S.meal] || dm.meals.Lunch; return x && x.other ? x.other.replace(/^./, function (c) { return c.toUpperCase(); }) : 'Other';
 }
 function curProtein() { var pks = dayProteins(); return pks.length ? (pks.indexOf(S.f.pk) >= 0 ? S.f.pk : pks[0]) : ''; }
 function protAdd(k, id) { var pk = id || curProtein(); if (dayProteins().length < 2 || !pk) return; S.f.pf = S.f.pf || {}; S.f.pf[pk] = Math.max(0, (S.f.pf[pk] || 0) + k); var b = document.querySelector('[data-pfn="' + pk + '"]'); if (b) b.textContent = S.f.pf[pk]; }
@@ -753,6 +760,7 @@ function menuText(db, mn, meal) {
   if (meal === 'Breakfast') { if (mn.mm) p.push('Porridge'); if (mn.other) p.push(mn.other); if (mn.bread) p.push('Bread'); }
   else if (mn.mm) p.push('Nshima');
   (mn.relish || []).forEach(function (r) { var it = eatItem(db, r); if (it) p.push(it.name.toLowerCase()); });
+  if (meal !== 'Breakfast' && mn.other) p.push(mn.other.toLowerCase());
   if (mn.veg) p.push(mn.veg.toLowerCase());
   return p.join(', ').replace(/^./, function (x) { return x.toUpperCase(); });
 }
@@ -764,7 +772,7 @@ function dayMenuText(db, dm) {
   return p.join(' · ');
 }
 function qtyLine(db, q, unitOf) {
-  var parts = []; for (var id in q) { if (q[id] == null) continue; var it = eatItem(db, id); if (id === 'pcs') parts.push(q[id] + ' pieces'); else if (it) parts.push(it.name + ' ' + fmt(q[id]) + ' ' + (unitOf && unitOf[id] === 'unit' ? it.unit : it.use)); }
+  var parts = []; for (var id in q) { if (q[id] == null) continue; var it = eatItem(db, id); if (id === 'pcs') parts.push(q[id] + ' pieces'); else if (it) parts.push(it.name + ' ' + fmt(q[id]) + ' ' + unitName(it, unitOf && unitOf[id])); }
   return parts.join(' · ');
 }
 function perTxt(it, per) { return per == null ? '–' : (it.use === 'kg' ? Math.round(per * 1000) + ' g a portion' : fmt(per) + ' ' + it.use + ' a portion'); }
@@ -783,7 +791,7 @@ SCREENS.today = function () {
   if (sk && sk.data.on && sk.data.absent) return out + banner('danger', 'Nobody of the team was at ' + esc(centreName(c)) + ' on ' + dayName(d) + (sk.byName ? ' (' + esc(sk.byName) + ')' : '') + '. This day has no data: it does not count as zero.') + btn('Undo', 'data-a="skip" data-on="0"', 'block');
   if (sk && sk.data.on) out += banner('danger', 'Food not counted on ' + dayName(d) + '. People are counted.') + btn('Undo', 'data-a="skip" data-on="0"') + list(pStep);
   else out += list(
-    stepRow('1', 'What do we eat today?', noMenu ? 'Menu not written. It can still be added.' : esc(dayMenuText(db, dm)) + (dm.saved ? '' : ' (plan)') + (dm.cook ? ' · Cook: ' + esc(dm.cook) : ''), 'menu', state(dm.saved, noMenu)) +
+    stepRow('1', 'What do we eat today?', noMenu ? 'Menu not written. It can still be added.' : esc(dayMenuText(db, dm)) + (dm.saved ? '' : ' (plan)') + (dm.cook ? ' · Head cook: ' + esc(dm.cook) : ''), 'menu', state(dm.saved, noMenu)) +
     stepRow('2', 'Quantities for today', b ? esc(qtyLine(db, b.data.q, b.data.u)) + (b.data.pc != null ? ' · ' + plural(b.data.pc, 'portion', 'portions') + ' cooked' : '') : (noBefore ? 'Quantities not counted. They can still be added.' : 'Food taken out of the store and the cold room for the meals of today'), 'before', state(b, noBefore)) +
     pStep +
     (left ? stepRow('4', 'Leftovers', a ? 'Saved' : (noAfter ? 'Leftovers not counted. They can still be added.' : 'After the count: what is left at the end of the day'), 'after', state(a, noAfter)) : ''));
@@ -791,14 +799,14 @@ SCREENS.today = function () {
   var u = eatDayUse(db, c, d), rows = [];
   if (u.closed && u.base) db.items.forEach(function (it) { if (u.used[it.id] == null) return; rows.push([esc(it.name), perTxt(it, eatPerPlate(u, it.id)) + (eatBaseOf(u, it.id) !== u.base ? ' (' + plural(eatBaseOf(u, it.id), 'portion', 'portions') + ' with ' + esc(it.name.toLowerCase()) + ')' : '')]); });
   /* beta 1.6: the food left after the last meal, next to the amount a plate */
-  var lrows = []; if (u.remained != null) { lrows.push(['Portions remained', u.remained]); if (u.dinner != null) lrows.push(['Dinner (sapa)', Math.min(u.dinner, u.remained) + (u.dinnerShort ? ' (' + u.dinnerShort + ' missing)' : '')]); lrows.push(['Left for another day', plural(u.leftPortions, 'portion', 'portions')]); }
+  var lrows = []; if (u.remained != null) { lrows.push(['Portions remained', u.remained + (u.remF ? ' (' + db.items.filter(function (it) { return u.remF[it.id] != null; }).map(function (it) { return esc(foodWord(it).toLowerCase()) + ' ' + u.remF[it.id]; }).join(', ') + ')' : '')]); if (u.dinner != null) lrows.push(['Dinner (sapa)', Math.min(u.dinner, u.remained) + (u.dinnerShort ? ' (' + u.dinnerShort + ' missing)' : '')]); lrows.push(['Left for another day', plural(u.leftPortions, 'portion', 'portions')]); }
   if (u.hasAfter) db.items.forEach(function (it) { if (u.left[it.id] == null) return; var lw = leftWords(db, c, d, it, u.left[it.id], it.id === 'chk' ? u.leftPieces : null); if (lw) lrows.push([esc(it.name) + ' left', lw]); });
   /* beta 1.9: the portions cooked against the portions eaten and left */
   if (u.cookedP != null) { var pp9 = planPortions(db, c, d); lrows.unshift(['Portions cooked', u.cookedP + (pp9 && pp9.tot !== u.cookedP ? ' (menu of the week ' + pp9.tot + (u.cookedWhy ? ': ' + esc(u.cookedWhy) : '') + ')' : '')]);
     if (u.remained != null && u.base != null) { var na = u.cookedP - u.base - u.leftPortions; lrows.push(['Not accounted (cooked − eaten − left)', na ? tag(na > 0 ? 'warn' : '', plural(na, 'portion', 'portions')) : tag('ok', '0')]); } }
   var lexp = u.remained != null ? null : (u.planned != null && u.base ? u.planned - u.base : null);
   out += card(h3(dayName(d)) +
-    table([[''], ['', 1]], [['Portions', u.plates == null ? tag('', 'Portions: to do') : u.plates + (u.peopleMissing ? ' (' + plural(u.peopleMissing, 'meal', 'meals') + ' not counted)' : '')]].concat(u.cooked ? [['Cooked for ' + othersWords(db, c, d), u.cooked]] : []).concat([['Kitchen staff', u.staff == null ? tag('', 'To write in Portions') : u.staff]]).concat(rows).concat(lrows).concat(lexp != null && lrows.length && lexp >= 0 ? [['Should be left (plan − ate)', plural(lexp, 'portion', 'portions')]] : [])) +
+    table([[''], ['', 1]], [['Portions', u.plates == null ? tag('', 'Portions: to do') : u.plates + (u.peopleMissing ? ' (' + plural(u.peopleMissing, 'meal', 'meals') + ' not counted)' : '')]].concat(u.cooked ? [['Cooked for ' + othersWords(db, c, d), u.cooked]] : []).concat([['Kitchen staff', u.staff == null ? tag('', 'To write in Portions') : u.staff]]).concat(rows).concat(lrows).concat(lexp != null && lrows.length && lexp >= 0 ? [['Should be left (menu of the week − ate)', plural(lexp, 'portion', 'portions')]] : [])) +
     (!rows.length && !u.skipped ? small(u.hasBefore ? (u.closed ? 'Count the portions to see the amount a portion.' : 'After the leftovers: the amount a portion.') : 'After the quantities for today: the amount a portion.') : ''), 'data-day');
   /* Daniela, 26/11: undo what was written today, and a day when nobody of the team was at the centre */
   var any = ['people', 'staff', 'dmenu', 'dbefore', 'dafter', 'dskip'].some(function (t) { return db.entries.some(function (e) { return !e.del && e.type === t && e.centre === c && e.date === d; }); });
@@ -815,25 +823,31 @@ function qRow(key, label, unit, val, nc, step, tog) {
     '<div class="cyp-stepper"><button class="cyp-btn" data-a="step" data-k="' + key + '" data-s="-' + step + '" aria-label="Less"' + dis + '>' + ic('minus') + '</button>' +
     '<input id="q_' + key + '" type="text" inputmode="decimal" autocomplete="off" placeholder="0" value="' + (nc || val == null ? '' : esc(String(val))) + '" data-q="' + key + '"' + dis + '>' +
     '<button class="cyp-btn cyp-btn--primary" data-a="step" data-k="' + key + '" data-s="' + step + '" aria-label="More"' + dis + '>' + ic('plus') + '</button></div>' +
-    (key === 'pcs' || key === 'pr' || key === 'pc' || key.indexOf('pp_') === 0 || key === 'x_chk' || nc || (S.f.u && S.f.u[key] === 'portion') || (S.f.cu && S.f.cu[key] === 'pieces') ? '' : '<div class="four">' + [[0, '0'], [0.25, '¼'], [0.5, '½'], [0.75, '¾']].map(function (x) { return btn(x[0] ? '+' + x[1] : '.0', 'data-a="frac" data-k="' + key + '" data-v="' + x[0] + '" aria-label="' + (x[0] ? 'And ' + x[1] : 'Whole number') + '"'); }).join('') + '</div>') +
+    (key === 'pcs' || key === 'pr' || key === 'pc' || key.indexOf('pp_') === 0 || key.indexOf('pf_') === 0 || key === 'x_chk' || nc || (S.f.u && S.f.u[key] === 'portion') || (S.f.cu && S.f.cu[key] === 'pieces') ? '' : '<div class="four">' + [[0, '0'], [0.25, '¼'], [0.5, '½'], [0.75, '¾']].map(function (x) { return btn(x[0] ? '+' + x[1] : '.0', 'data-a="frac" data-k="' + key + '" data-v="' + x[0] + '" aria-label="' + (x[0] ? 'And ' + x[1] : 'Whole number') + '"'); }).join('') + '</div>') +
     (nc === undefined ? '' : choice('', [{ l: 'Not counted', on: !!nc, at: 'data-a="nc" data-k="' + key + '"' }], { many: true, aria: label + ': not counted' })) + (tog || '') + '</div>';
 }
 /* halves and quarters for what is weighed or comes in bags and trays; whole numbers for chickens, eggs, loaves */
-function stepOf(unit) { return unit === 'kg' || unit === 'bags' || unit === 'trays' ? 0.25 : 1; }
-function rowUnit(it, u) { return u === 'portion' ? 'portion' : (it.unit !== it.use && u === 'unit' ? 'unit' : 'use'); }
+function stepOf(unit) { return unit === 'kg' || unit === 'bags' || unit === 'trays' || unit === 'buckets' ? 0.25 : 1; }
+/* the kg in one bucket at a centre: from the last quantities of the day that wrote it */
+function lastBucketKg(db, c, id) { var last = null; db.entries.forEach(function (e) { if (e.del || e.type !== 'dbefore' || e.centre !== c || !e.data.ak || !e.data.ak[id]) return; if (!last || e.date > last.date) last = e; }); return last ? last.data.ak[id] : null; }
+function unitName(it, u) { return u === 'unit' ? it.unit : (u === 'alt' && EAT_ALT[it.id] ? EAT_ALT[it.id].unit : it.use); }
+function rowUnit(it, u) { return u === 'portion' ? 'portion' : (u === 'alt' && EAT_ALT[it.id] ? 'alt' : (it.unit !== it.use && u === 'unit' ? 'unit' : 'use')); }
 /* a quantity in the unit of the row: portions become the unit of the item with the size of one portion */
 function convRow(it, q, u, size) { if (u !== 'portion') return eatConv(it, q, u); if (!(size > 0)) return { use: null, unit: null }; var use = Math.round(q * size * 1000) / 1000; return { use: use, unit: it.unit === it.use ? use : (it.per > 0 ? Math.round(use / it.per * 1000) / 1000 : null) }; }
 /* leftovers: in portions when the size of a portion is known, else in kg, bags or trays */
 function afterTog(it, u, size) {
   var cur = rowUnit(it, u), opts = (size > 0 ? ['portion'] : []).concat(it.unit === it.use ? ['use'] : ['unit', 'use']);
   return (size > 0 && cur === 'portion' ? '<p class="small muted">1 portion = ' + fmt(size) + ' ' + esc(it.use) + (it.id === 'chk' ? ' (a chicken is cut in 10)' : '') + '</p>' : '') +
-    (size > 0 ? '' : '<p class="small muted">To write it in portions: its quantity in the plan of the week, or the size of a portion in Overview, Settings, Food and units.</p>') +
+    (size > 0 ? '' : '<p class="small muted">To write it in portions: its quantity in the menu of the week, or the size of a portion in Overview, Settings, Food and units.</p>') +
     (opts.length > 1 ? choice('', opts.map(function (x) { return { l: x === 'portion' ? 'In portions' : 'In ' + esc(x === 'unit' ? it.unit : it.use), on: x === cur, at: 'data-a="unit" data-k="' + it.id + '" data-v="' + x + '"' }; }), { name: 'au_' + it.id }) : '');
 }
 function unitTog(it, u) {
   if (it.unit === it.use) return '';
   var cur = rowUnit(it, u);
-  return choice('', ['unit', 'use'].map(function (x) { return { l: 'In ' + esc(x === 'unit' ? it.unit : it.use), on: x === cur, at: 'data-a="unit" data-k="' + it.id + '" data-v="' + x + '"' }; }), { aria: 'Unit for ' + it.name, name: 'u_' + it.id });
+  /* beta 1.13 (Mauro, 27/11): beans also in buckets, with the kg in one bucket */
+  var al = EAT_ALT[it.id], opts = ['unit', 'use'].concat(al ? ['alt'] : []);
+  return choice('', opts.map(function (x) { return { l: 'In ' + esc(x === 'unit' ? it.unit : (x === 'alt' ? al.unit : it.use)), on: x === cur, at: 'data-a="unit" data-k="' + it.id + '" data-v="' + x + '"' }; }), { aria: 'Unit for ' + it.name, name: 'u_' + it.id, cols: opts.length > 2 ? 3 : 0 }) +
+    (al && cur === 'alt' ? field('1 ' + al.one + ' of ' + esc(it.name.toLowerCase()) + ' = about how many kg?', 'ak_' + it.id, '<input id="ak_' + it.id + '" class="cyp-input num" type="text" inputmode="decimal" autocomplete="off" data-f="ak_' + it.id + '" value="' + esc(S.f['ak_' + it.id] == null ? '' : String(S.f['ak_' + it.id])) + '">', 'Weigh one ' + al.one + ' once, or ask the cook. The app keeps it for the next days.') : '');
 }
 var BACKNAME = { menu: 'What we eat', before: 'Quantities', after: 'Leftovers', people: 'Portions', today: 'Daily', week: 'Weekly' };
 function backLink() { var to = backTarget(); return BACKNAME[to] && to !== S.scr ? '<button class="cyp-btn start bk" data-a="histBack">' + ic('back') + BACKNAME[to] + '</button>' : backBtn('today', 'Daily'); }
@@ -842,9 +856,9 @@ function dayTitle() { return '<p class="label-caps muted">' + dayName(S.date) + 
 SCREENS.menu = function () {
   var db = view(), f = S.f, relish = db.items.filter(function (it) { return it.relish; }), plan = eatItem(db, EAT_PLAN[eatWeekday(S.date)]);
   var cooks = (db.names || []).filter(function (n) { return n.active && n.role === 'Canteen'; }).map(function (n) { return n.name; }).sort();
-  var cookCard = card(h3('Cook') +
-    (cooks.length ? choice('', cooks.map(function (n) { return { l: esc(n), on: f.cook === n, at: 'data-a="cook" data-n="' + esc(n) + '"' }; }), { aria: 'Cook', name: 'cook', cols: cooks.length > 3 ? 2 : 0 }) : '') +
-    field(cooks.length ? 'Or write the name' : 'Name of the cook', 'ck', '<input id="ck" class="cyp-input" type="text" data-f="cook" value="' + esc(f.cook || '') + '">'));
+  var cookCard = card(h3('Head cook') +
+    (cooks.length ? choice('', cooks.map(function (n) { return { l: esc(n), on: f.cook === n, at: 'data-a="cook" data-n="' + esc(n) + '"' }; }), { aria: 'Head cook', name: 'cook', cols: cooks.length > 3 ? 2 : 0 }) : '') +
+    field(cooks.length ? 'Or write the name' : 'Name of the head cook', 'ck', '<input id="ck" class="cyp-input" type="text" data-f="cook" value="' + esc(f.cook || '') + '">'));
   var both = sameDinner(f.meals);
   return backLink() + title('What do we eat today?') + dayTitle() + skipNote('menu') + cookCard + centreMeals().map(function (m) {
     var x = f.meals[m];
@@ -854,14 +868,16 @@ SCREENS.menu = function () {
       (x.isOther ? field('What is it?', 'bfo', '<input id="bfo" class="cyp-input" type="text" data-mv="Breakfast" data-k="other" value="' + esc(x.other) + '">', 'Bread, tea…') : ''));
     return card(h3(both && m === 'Lunch' ? 'Lunch and dinner' : m) + (plan ? small(WD[eatWeekday(S.date)] + ' plan: ' + esc(plan.name.toLowerCase())) : '') +
       choice('', [{ l: 'Nshima', on: !!x.mm, at: 'data-a="mmm" data-m="' + m + '"' }], { many: true, aria: 'Nshima' }) +
-      choice('Protein', relish.map(function (it) { return { l: esc(it.name), on: x.relish.indexOf(it.id) >= 0, at: 'data-a="rel" data-m="' + m + '" data-id="' + it.id + '"' }; }), { many: true, cols: 2 }));   /* no vegetables (Daniela, 26/11: "vegetables we don't care for now") */
+      choice('Protein', relish.map(function (it) { return { l: esc(it.name), on: x.relish.indexOf(it.id) >= 0, at: 'data-a="rel" data-m="' + m + '" data-id="' + it.id + '"' }; }).concat([{ l: 'Other', on: !!x.isOther, at: 'data-a="relo" data-m="' + m + '"' }]), { many: true, cols: 2 }) +
+      /* beta 1.13 (Mauro, 27/11: "today beans, and who does not want them eats vegetables") */
+      (x.isOther ? field('Other: what is it?', 'oth_' + m, '<input id="oth_' + m + '" class="cyp-input" type="text" data-mv="' + m + '" data-k="other" value="' + esc(x.other || '') + '">', 'For who does not eat the protein of the day. Vegetables, soya…') : ''));   /* no vegetables (Daniela, 26/11: "vegetables we don't care for now") */
   }).join('') + btn('Next: quantities for today', 'data-a="saveMenu"', 'primary block') + skipBtn('menu');
 };
 function foodRowsHtml(f, after) {
   var db = view(), out = '';
   f.rows.forEach(function (id) {
     var it = eatItem(db, id); if (!it) return;
-    var un = rowUnit(it, f.u[id]), ut = un === 'portion' ? 'portions' : (un === 'unit' ? it.unit : it.use), size = f.ps ? f.ps[id] : null;
+    var un = rowUnit(it, f.u[id]), ut = un === 'portion' ? 'portions' : unitName(it, un), size = f.ps ? f.ps[id] : null;
     out += qRow(id, (id === 'veg' && f.vegName ? f.vegName : it.name), ut, f.q[id], !!f.nc[id], un === 'portion' ? 1 : stepOf(ut), after ? afterTog(it, f.u[id], size) : unitTog(it, f.u[id]));
     if (id === 'chk' && !(after && un === 'portion')) out += qRow('pcs', after ? 'Chicken pieces left' : 'Chicken pieces cut', 'pieces', f.q.pcs, !!f.nc.pcs, 1);
   });
@@ -884,11 +900,32 @@ SCREENS.after = function () {
   return backLink() + title('Leftovers') + dayTitle() + skipNote('after') +
     (din != null ? '<p>Count the portions remained <strong>after lunch</strong>. The dinner (sapa) eats the portions of the menu of the week; what is beyond is left for another day.</p>'
       : '<p>Count the portions remained <strong>after the last meal</strong>: the food cooked and not served.</p>') +
-    card(qRow('pr', 'Portions remained', 'portions', S.f.q.pr, undefined, 1)) +
+    card(qRow('pr', 'Portions remained', 'portions', S.f.q.pr, undefined, 1)) + byFoodCard(db, b) +
     (din != null ? '<div id="din">' + dinnerSplit(din, eatNum(S.f.q.pr)) + '</div>' : '') +
     '<div class="cyp-card" id="bal">' + balanceHtml() + '</div>' +
     btn('Save', 'data-a="saveAfter"', 'primary block') + skipBtn('after');
 };
+/* beta 1.12 (Letizia, 26/11: "the person encoding has to have the option to encode each meal quantity in portions: ex: 10 nshima, 6 fish, 30 pork"):
+   the portions remained of each food, when the foods did not remain the same. A food left empty follows the portions remained */
+function foodWord(it) { return it.id === 'mm' ? 'Nshima' : it.name; }
+function leftFoods(db, b) { return db.items.filter(function (it) { return b.data.q[it.id] != null && !(b.data.nc && b.data.nc[it.id]); }); }
+function byFoodCard(db, b) {
+  var its = leftFoods(db, b); if (its.length < 2) return '';
+  return card(choice('', [{ l: 'The foods did not remain the same: write each food', on: !!S.f.byFood, at: 'data-a="byFood"' }], { many: true, aria: 'Portions remained of each food' }) +
+    (S.f.byFood ? its.map(function (it) { return qRow('pf_' + it.id, foodWord(it), 'portions', S.f.q['pf_' + it.id], undefined, 1).replace('placeholder="0"', 'placeholder="' + (eatNum(S.f.q.pr) == null ? 0 : Math.round(eatNum(S.f.q.pr))) + '"'); }).join('') +
+      small('Example: 10 nshima, 6 fish, 30 pork. A food left empty (in grey) follows the portions remained above.') : ''));
+}
+/* the portions remained of each food as they would be saved, or null */
+function afterPrf() {
+  var db = view(), b = eatGet(db, 'dbefore', S.sess.centre, S.date, ''), out = {}, any = false; if (!S.f.byFood || !b) return null;
+  leftFoods(db, b).forEach(function (it) { var v = eatNum(S.f.q['pf_' + it.id]); if (v != null && v >= 0) { out[it.id] = Math.round(v); any = true; } });
+  return any ? out : null;
+}
+/* the portions remained when only the foods are written: the nshima, or the food with the most */
+function afterPr() {
+  var pr = eatNum(S.f.q.pr), prf = afterPrf(); if (pr != null || !prf) return pr;
+  if (prf.mm != null) return prf.mm; var mx = 0; for (var k in prf) if (prf[k] > mx) mx = prf[k]; return mx;
+}
 /* Minsundu: the dinner of the menu of the week, or null where there is no dinner from the plan */
 function dinnerPlanned(db, c, d) {
   if (fixedMeals().indexOf('Dinner') < 0 || eatDinLeft(db, c)) return null;
@@ -906,10 +943,11 @@ function dinnerSplit(din, pr) {
 /* the balance of the day while the portions are written: the day as it would be saved */
 function balanceHtml() {
   var db = view(), c = S.sess.centre, b = eatGet(db, 'dbefore', c, S.date, ''); if (!b) return '';
-  var pr = eatNum(S.f.q.pr), u;
+  var pr = afterPr(), prf = afterPrf(), u;
   if (pr == null) u = eatDayUse(db, c, S.date);
   else {
     var fake = { type: 'dafter', centre: c, date: S.date, meal: '', key: eatKey('dafter', c, S.date, ''), data: { pr: Math.max(0, Math.round(pr)), q: {}, nc: {}, u: {} } };
+    if (prf) fake.data.prf = prf;
     u = eatDayUse({ rev: db.rev, settings: db.settings, names: db.names, centres: db.centres, items: db.items, entries: db.entries.concat([fake]) }, c, S.date);
   }
   if (u.remained == null) return h3('Balance of the day') + small('Write the portions remained to see the food a portion and the food left.');
@@ -1260,23 +1298,23 @@ function plDay(db, c, w) {
 }
 SCREENS.plan = function () {
   var db = view(), v = S.pl || { step: 'form' }, c = plCentre(), t = todayStr(), mon = eatMonday(t), next = eatAddDays(mon, 7);
-  var photo = v.img ? '<img class="photo" src="' + v.img + '" alt="The photo of the plan">' : '';
-  if (v.step === 'reading') return title('Reading the plan…') + photo + '<p role="status">It takes 10 to 30 seconds. <strong class="num" id="rsec">' + (v.t0 ? Math.round((Date.now() - v.t0) / 1000) : 0) + '</strong> s</p>';
-  if (v.step === 'saved') return banner('ok', 'Saved: the plan of ' + esc(centreName(v.c)) + ', week of ' + dmy(v.w) + '. Thank you.') + btn('Write or correct a plan', 'data-a="plAgain"', 'primary block', 'pen');
+  var photo = v.img ? '<img class="photo" src="' + v.img + '" alt="The photo of the menu of the week">' : '';
+  if (v.step === 'reading') return title('Reading the menu of the week…') + photo + '<p role="status">It takes 10 to 30 seconds. <strong class="num" id="rsec">' + (v.t0 ? Math.round((Date.now() - v.t0) / 1000) : 0) + '</strong> s</p>';
+  if (v.step === 'saved') return banner('ok', 'Saved: the menu of ' + esc(centreName(v.c)) + ', week of ' + dmy(v.w) + '. Thank you.') + btn('Write or correct a menu of the week', 'data-a="plAgain"', 'primary block', 'pen');
   var dl = S.sess.mode !== 'entry';
-  var head = (!dl && S.plFrom ? backBtn(S.plFrom, S.plFrom === 'people' ? 'People' : 'Weekly') : '') + title('Plan of the week') + '<p>The paper the kitchen writes for the week: the people for each meal, the other places it cooks for, and the food of each day. Take a picture of it, or write it here.</p>' +
+  var head = (!dl && S.plFrom ? backBtn(S.plFrom, S.plFrom === 'people' ? 'People' : 'Weekly') : '') + title('Menu of the week') + '<p>The paper the kitchen writes for the week: the people for each meal, the other places it cooks for, and the food of each day. Take a picture of it, or write it here.</p>' +
     (v.step === 'error' ? banner('danger', esc(v.msg), 'alert') : '') +
-    '<label class="cyp-btn cyp-btn--primary cyp-btn--block cam" for="cam">' + ic('camera') + 'Take a picture of the plan</label><label class="cyp-btn cyp-btn--block" for="gal">' + ic('gallery') + 'Choose a photo from the gallery</label>' + photo +
+    '<label class="cyp-btn cyp-btn--primary cyp-btn--block cam" for="cam">' + ic('camera') + 'Take a picture of the menu of the week</label><label class="cyp-btn cyp-btn--block" for="gal">' + ic('gallery') + 'Choose a photo from the gallery</label>' + photo +
     (v.read ? banner('warn', 'Read from the photo. Check every number with the paper, then save.') : '');
   var pick = (dl ? selectField('Kitchen', 'plc', [['', 'Choose the kitchen']].concat(canteens(db).map(function (x) { return [x.id, shown(x.name)]; })), c, 'plCentre') : '<p class="body-strong">' + esc(centreName(c)) + '</p>') +
     choice('Week', [{ l: 'This week, ' + dmy(mon), on: S.f.plw === mon, at: 'data-a="plWeek" value="' + mon + '"' }, { l: 'Next week, ' + dmy(next), on: S.f.plw === next, at: 'data-a="plWeek" value="' + next + '"' }].concat(S.f.plw !== mon && S.f.plw !== next ? [{ l: 'Week of ' + dmy(S.f.plw), on: true, at: 'data-a="plWeek" value="' + S.f.plw + '"' }] : []), { name: 'plw' });
   if (!c) return head + pick;
-  return head + pick + (S.f.plOld ? banner('', 'The plan of this week is saved. Saving again replaces it.') : '') +
-    (S.f.plCopied && !v.read ? banner('', 'Filled in from the plan of the week of ' + dmy(S.f.plCopied) + '. Change only what is different: the quantities follow the people.') : '') +
+  return head + pick + (S.f.plOld ? banner('', 'The menu of this week is saved. Saving again replaces it.') : '') +
+    (S.f.plCopied && !v.read ? banner('', 'Filled in from the menu of the week of ' + dmy(S.f.plCopied) + '. Change only what is different: the quantities follow the people.') : '') +
     [0, 1, 2, 3, 4, 5, 6].map(function (w) { return plDay(db, c, w); }).join('') +
     '<datalist id="plplaces">' + places(db).filter(function (x) { return x.id !== c; }).map(function (x) { return '<option value="' + esc(shown(x.name)) + '">'; }).join('') + '</datalist>' +
     field('Remark', 'plr', plInput('plr', S.f.plr, 'Remark', true)) +
-    btn('Save the plan', 'data-a="plSave"', 'primary block', 'check');
+    btn('Save the menu of the week', 'data-a="plSave"', 'primary block', 'check');
 };
 function dvError(title, msg, retry) { S.dv = { step: 'error', title: title, msg: msg, retry: !!retry, img: S.dv && S.dv.img, data: S.dv && S.dv.data }; render(); }
 function dvRead() {
@@ -1355,27 +1393,27 @@ function planWeek(db, c) {
 }
 function sg(n) { return n > 0 ? '+' + fmt(n) : fmt(n); }
 function planCard(db, cs, sel, wide) {
-  if (!sel) return card(h3('Plan of the week') + small('The plan of each kitchen against what happened: food taken out of the store and people counted at lunch.') + list(cs.map(function (c) {
+  if (!sel) return card(h3('Menu of the week') + small('The menu of the week of each kitchen against what happened: food taken out of the store and people counted at lunch.') + list(cs.map(function (c) {
     var w = planWeek(db, c.id);
-    return linkRow('clip', esc(shown(c.name)), !w.has ? 'No plan saved for this week' : (w.days.length ? plural(w.over, 'food', 'foods') + ' taken out above the plan · ' + (w.fewer ? w.fewer + ' fewer people at lunch than planned' : 'lunch as planned or more') : 'Plan saved, no day of it yet'), openAt(c), w.has ? (w.over ? tag('warn', 'Check') : tag('ok', 'Plan saved')) : tag('', 'No plan'));
+    return linkRow('clip', esc(shown(c.name)), !w.has ? 'No menu of the week saved for this week' : (w.days.length ? plural(w.over, 'food', 'foods') + ' taken out above the menu of the week · ' + (w.fewer ? w.fewer + ' fewer people at lunch than planned' : 'lunch as planned or more') : 'Menu of the week saved, no day of it yet'), openAt(c), w.has ? (w.over ? tag('warn', 'Check') : tag('ok', 'Menu of the week saved')) : tag('', 'No menu of the week'));
   }).join('')), 'data-plan');
   var w = planWeek(db, sel), ppl = [], food = [];
-  if (!w.has) return card(h3('Plan of the week') + '<p class="muted">No plan saved for this week. The kitchen or the deliveries person writes it: a photo of the paper, or by hand.</p>', 'data-plan');
+  if (!w.has) return card(h3('Menu of the week') + '<p class="muted">No menu of the week saved for this week. The kitchen or the deliveries person writes it: a photo of the paper, or by hand.</p>', 'data-plan');
   var pr = [], fr = [];
   w.days.forEach(function (x) {
     var dn = dayName(x.date);
-    x.k.people.forEach(function (p) { pr.push(row('', dn + ' · ' + p.meal, 'Plan ' + (p.plan == null ? '–' : nf(p.plan)) + ' · counted: ' + (p.fixed ? 'not counted' : (p.counted == null ? 'no count' : nf(p.counted))), !p.fixed && p.plan != null && p.counted != null && p.counted !== p.plan ? tag(p.counted < p.plan ? 'warn' : '', sg(p.counted - p.plan)) : '')); });
-    if (x.k.portions && x.k.portions.cooked != null) pr.push(row('', dn + ' · Portions cooked', 'Plan ' + nf(x.k.portions.plan) + ' · cooked ' + nf(x.k.portions.cooked) + (x.k.portions.why ? ' · why: ' + esc(x.k.portions.why) : ''), x.k.portions.cooked !== x.k.portions.plan ? tag('warn', sg(x.k.portions.cooked - x.k.portions.plan)) : tag('ok', 'As planned')));
-    for (var o2 in (x.k.day.o || {})) pr.push(row('', dn + ' · For ' + esc(o2), 'Plan ' + nf(x.k.day.o[o2]) + ' · not counted'));
-    x.k.food.forEach(function (f) { var it = eatItem(db, f.id); if (f.plan == null && f.out == null) return; fr.push(row('', dn + ' · ' + esc(it.name), 'Plan ' + (f.plan == null ? 'nothing' : fmt(f.plan) + ' ' + esc(it.unit)) + ' · taken out: ' + (!f.before ? 'no count' : (f.out == null ? 'not counted' : fmt(f.out) + ' ' + esc(it.unit))), f.diff ? tag(f.diff > 0 ? 'warn' : '', sg(f.diff)) : '')); });
+    x.k.people.forEach(function (p) { pr.push(row('', dn + ' · ' + p.meal, 'Menu of the week ' + (p.plan == null ? '–' : nf(p.plan)) + ' · counted: ' + (p.fixed ? 'not counted' : (p.counted == null ? 'no count' : nf(p.counted))), !p.fixed && p.plan != null && p.counted != null && p.counted !== p.plan ? tag(p.counted < p.plan ? 'warn' : '', sg(p.counted - p.plan)) : '')); });
+    if (x.k.portions && x.k.portions.cooked != null) pr.push(row('', dn + ' · Portions cooked', 'Menu of the week ' + nf(x.k.portions.plan) + ' · cooked ' + nf(x.k.portions.cooked) + (x.k.portions.why ? ' · why: ' + esc(x.k.portions.why) : ''), x.k.portions.cooked !== x.k.portions.plan ? tag('warn', sg(x.k.portions.cooked - x.k.portions.plan)) : tag('ok', 'As planned')));
+    for (var o2 in (x.k.day.o || {})) pr.push(row('', dn + ' · For ' + esc(o2), 'Menu of the week ' + nf(x.k.day.o[o2]) + ' · not counted'));
+    x.k.food.forEach(function (f) { var it = eatItem(db, f.id); if (f.plan == null && f.out == null) return; fr.push(row('', dn + ' · ' + esc(it.name), 'Menu of the week ' + (f.plan == null ? 'nothing' : fmt(f.plan) + ' ' + esc(it.unit)) + ' · taken out: ' + (!f.before ? 'no count' : (f.out == null ? 'not counted' : fmt(f.out) + ' ' + esc(it.unit))), f.diff ? tag(f.diff > 0 ? 'warn' : '', sg(f.diff)) : '')); });
     x.k.people.forEach(function (p) { ppl.push([dayName(x.date), p.meal, p.plan == null ? '–' : nf(p.plan), p.fixed ? 'not counted' : (p.counted == null ? 'no count' : nf(p.counted)), p.fixed || p.plan == null || p.counted == null ? '–' : sg(p.counted - p.plan)]); });
     for (var o in (x.k.day.o || {})) ppl.push([dayName(x.date), 'For ' + esc(o), nf(x.k.day.o[o]), 'not counted', '–']);
-    x.k.food.forEach(function (f) { var it = eatItem(db, f.id); food.push([dayName(x.date), esc(it.name) + ' (' + esc(it.unit) + ')', f.plan == null ? 'not in the plan' : fmt(f.plan), !f.before ? 'no count' : (f.out == null ? 'not counted' : fmt(f.out)), f.diff == null ? '–' : (f.diff > 0 ? tag('warn', sg(f.diff)) : sg(f.diff))]); });
+    x.k.food.forEach(function (f) { var it = eatItem(db, f.id); food.push([dayName(x.date), esc(it.name) + ' (' + esc(it.unit) + ')', f.plan == null ? 'not in the menu of the week' : fmt(f.plan), !f.before ? 'no count' : (f.out == null ? 'not counted' : fmt(f.out)), f.diff == null ? '–' : (f.diff > 0 ? tag('warn', sg(f.diff)) : sg(f.diff))]); });
   });
-  return card(h3('Plan of the week') + small('Lunch is counted; dinner and the other places take the number of the plan.') +
-    (ppl.length ? (wide ? table([['Day'], ['Meal'], ['Plan', 1], ['Counted', 1], ['Difference', 1]], ppl, null, { dense: true }) : list(pr.join(''))) : '<p class="muted">No day of the plan yet.</p>') +
-    h3('Food: plan and taken out') + small('Taken out: the quantities written in the morning. Above the plan, the food should come back in the leftovers.') +
-    (food.length ? (wide ? table([['Day'], ['Food'], ['Plan', 1], ['Taken out', 1], ['Difference', 1]], food, null, { dense: true }) : list(fr.join(''))) : '<p class="muted">No food in the plan or in the counts yet.</p>'), 'data-plan');
+  return card(h3('Menu of the week') + small('Lunch is counted; dinner and the other places take the number of the menu of the week.') +
+    (ppl.length ? (wide ? table([['Day'], ['Meal'], ['Menu', 1], ['Counted', 1], ['Difference', 1]], ppl, null, { dense: true }) : list(pr.join(''))) : '<p class="muted">No day of the menu of the week yet.</p>') +
+    h3('Food: menu of the week and taken out') + small('Taken out: the quantities written in the morning. Above the menu of the week, the food should come back in the leftovers.') +
+    (food.length ? (wide ? table([['Day'], ['Food'], ['Menu', 1], ['Taken out', 1], ['Difference', 1]], food, null, { dense: true }) : list(fr.join(''))) : '<p class="muted">No food in the menu of the week or in the counts yet.</p>'), 'data-plan');
 }
 /* what opens one centre: the whole row, band or table row, with chevron-right (design system of 24/11, no Open button) */
 function openAt(c) { return 'data-a="ovOpen" data-id="' + c.id + '"'; }
@@ -1430,13 +1468,13 @@ SCREENS.overview = function () {
     body += card('<div class="cyp-donut">' + (tot ? '<svg viewBox="0 0 240 240" role="img" aria-label="Portions by centre: ' + esc(aria.join(', ')) + '">' + ring + '</svg>' : '') + '<div><h3 class="heading-2">Portions by centre</h3><ul class="cyp-legend">' + leg + '</ul></div></div>', 'data-donut');
     /* the plates of each meal: one row for each centre with Open; the meals of the centre that is open; a table on a computer */
     var prow2 = [], go2 = [], rows = '';
-    function mealTxt(x) { return (x.fixed != null ? (x.days ? Math.round(x.plates / x.days) : x.fixed) + ' a day · ' + (x.planned ? 'from the plan' : 'fixed') + ', not counted' : (x.days ? Math.round(x.plates / x.days) + ' a day · ' + x.plates + ' in ' + plural(x.days, 'day', 'days') : 'No count')) + (x.skip ? ' · not counted on ' + plural(x.skip, 'day', 'days') : ''); }
+    function mealTxt(x) { return (x.fixed != null ? (x.days ? Math.round(x.plates / x.days) : x.fixed) + ' a day · ' + (x.planned ? 'from the menu of the week' : 'fixed') + ', not counted' : (x.days ? Math.round(x.plates / x.days) + ' a day · ' + x.plates + ' in ' + plural(x.days, 'day', 'days') : 'No count')) + (x.skip ? ' · not counted on ' + plural(x.skip, 'day', 'days') : ''); }
     cs.forEach(function (c) {
       var s = stats[c.id];
-      c.meals.forEach(function (m) { var x = s.meals[m]; go2.push(openAt(c)); prow2.push([esc(shown(c.name)), m, x.days ? Math.round(x.plates / x.days) : (x.fixed != null ? x.fixed : '–'), x.fixed != null || x.days ? nf(x.plates) : '–', x.fixed != null ? (x.planned ? 'from the plan' : 'fixed') + ', not counted' : x.days + (x.skip ? ' (' + x.skip + ' not counted)' : '')]); });
+      c.meals.forEach(function (m) { var x = s.meals[m]; go2.push(openAt(c)); prow2.push([esc(shown(c.name)), m, x.days ? Math.round(x.plates / x.days) : (x.fixed != null ? x.fixed : '–'), x.fixed != null || x.days ? nf(x.plates) : '–', x.fixed != null ? (x.planned ? 'from the menu of the week' : 'fixed') + ', not counted' : x.days + (x.skip ? ' (' + x.skip + ' not counted)' : '')]); });
       /* the plates cooked here for other places, from the plans of the week (nobody counts them here) */
-      var ck = Object.keys(s.others).map(function (k) { return { name: k, n: s.others[k] }; }), ckTxt = ck.map(function (x) { return 'For ' + esc(x.name) + ': ' + x.n + ' this week · in the plan, not counted'; });
-      ck.forEach(function (x) { go2.push(openAt(c)); prow2.push([esc(shown(c.name)), 'For ' + esc(x.name), '–', nf(x.n), 'in the plan, not counted']); });
+      var ck = Object.keys(s.others).map(function (k) { return { name: k, n: s.others[k] }; }), ckTxt = ck.map(function (x) { return 'For ' + esc(x.name) + ': ' + x.n + ' this week · in the menu of the week, not counted'; });
+      ck.forEach(function (x) { go2.push(openAt(c)); prow2.push([esc(shown(c.name)), 'For ' + esc(x.name), '–', nf(x.n), 'in the menu of the week, not counted']); });
       if (!sel) rows += linkRow('', esc(shown(c.name)), c.meals.map(function (m) { return m + ': ' + mealTxt(s.meals[m]); }).concat(ckTxt).join(' · '), openAt(c));
       else if (c.id === sel) rows = c.meals.map(function (m) { return row('', m, mealTxt(s.meals[m])); }).join('') + ck.map(function (x, j) { return row('', 'For ' + esc(x.name), ckTxt[j].split(': ')[1]); }).join('');
     });
@@ -1490,7 +1528,7 @@ function checkSummary(db, c) {
 }
 /* the store of one centre in the week shown: start + delivered − cooked = expected, next to the count at the end of the week */
 function checkCard(db, c, wide) {
-  var w = eatWeekCheck(db, c, S.week, todayStr()), rows = '', trs = [], miss = 0;
+  var w = eatWeekCheck(db, c, S.week, todayStr()), rows = '', trs = [], miss = 0, sure = w.daysFood >= w.days;
   db.items.forEach(function (it) {
     var x = w.items[it.id]; if (!x || (!x.start && !x.inn && !x.used && !x.counted)) return;
     var pill = '', why = '';
@@ -1499,8 +1537,10 @@ function checkCard(db, c, wide) {
     else if (x.counted === null) pill = tag('', 'Not counted');
     else if (x.diff == null) pill = tag('', 'Counted: ' + esc(qtyUnit(x.counted, it.unit)));
     else if (x.diff === 0) pill = tag('ok', 'As expected');
-    else if (x.diff < 0) { pill = tag('danger', esc(qtyUnit(-x.diff, it.unit)) + ' missing'); miss++; }
-    else pill = tag('warn', esc(qtyUnit(x.diff, it.unit)) + ' more');
+    /* beta 1.12: in colour only above the margin; "missing" only when every day has its daily count */
+    else if (x.diff < 0 && !eatShortBig(x)) pill = tag('', esc(qtyUnit(-x.diff, it.unit)) + ' less');
+    else if (x.diff < 0) { pill = tag(sure ? 'danger' : 'warn', esc(qtyUnit(-x.diff, it.unit)) + (sure ? ' missing' : ' short')); miss++; }
+    else pill = tag('', esc(qtyUnit(x.diff, it.unit)) + ' more');
     if (x.expected == null) why = x.start == null ? 'there is no count before this week' : (it.unit !== it.use && !it.per ? 'set how much is in one ' + unitOne(it.unit) + ' (Settings, Food and units)' : 'a daily count is not complete');
     var sum = 'Start ' + (x.start == null ? '?' : fmt(x.start)) + ' + delivered ' + fmt(x.inn) + ' − cooked ' + fmt(x.used) + ' = expected <strong>' + (x.expected == null ? '?' : fmt(x.expected)) + '</strong>' + (x.counted === undefined ? '' : (x.counted === null ? ' · not counted at the end' : ' · counted <strong>' + (x.about ? 'about ' : '') + fmt(x.counted) + '</strong>'));
     rows += row('', esc(it.name) + ' (' + esc(it.unit) + ')', sum + (why ? ' · Expected not known: ' + why + '.' : ''), '', pill);
@@ -1508,7 +1548,7 @@ function checkCard(db, c, wide) {
   });
   var head = small((w.startCounted ? 'Start: counted ' + dayName(w.startDate) : (w.startDate ? 'Start: the stock on Monday morning, from the count of ' + dayName(w.startDate) : 'Start: no count before this week')) + '. ' +
     (w.endDate ? 'End: counted ' + dayName(w.endDate) : 'End: not counted yet') + '. Daily food counted on ' + w.daysFood + ' of ' + plural(w.days, 'day', 'days') + (w.daysSkipped ? ' (' + w.daysSkipped + ' marked not counted)' : '') + '.');
-  var warn = miss && w.daysFood < w.days ? '<div class="cyp-note cyp-note--warn"><b>Check the days without a daily count first</b><p>Food cooked on a day without a daily count is not in "cooked", so it shows as missing. Check those days first.</p></div>' : '';
+  var warn = miss && w.daysFood < w.days ? '<div class="cyp-note cyp-note--warn"><b>Check the days without a daily count first</b><p>Food cooked on a day without a daily count is not in "cooked", so it shows as short. Check those days first.</p></div>' : '';
   return '<div class="cyp-card cyp-card--stack" data-check="' + c + '">' + h3(esc(centreName(c))) + head +
     (rows ? (wide ? table([['Item'], ['Unit'], ['Start', 1], ['Delivered', 1], ['Cooked', 1], ['Expected', 1], ['Counted', 1], ['Difference', 1]], trs, null, { dense: true }) : list(rows)) : '<p class="muted">Nothing yet.</p>') + warn + '</div>';
 }
@@ -1600,11 +1640,11 @@ SCREENS.settings = function () {
       }).join('');
     },
     food: function () {
-      return card(h3('How each food is counted in the store') + small('In its own unit (kg, chicken, egg), or by the bag, tray, can, pack or piece. For those, write how much is in one. Leftovers are written in portions: empty = the size of a portion comes from the plan of the week (a chicken: 10 portions).') + db.items.map(function (it) {
+      return card(h3('How each food is counted in the store') + small('In its own unit (kg, chicken, egg), or by the bag, tray, can, pack or piece. For those, write how much is in one. Leftovers are written in portions: empty = the size of a portion comes from the menu of the week (a chicken: 10 portions).') + db.items.map(function (it) {
         var un = S.f['un_' + it.id] || it.unit, pack = un !== it.use, per = S.f['pe_' + it.id] != null ? S.f['pe_' + it.id] : (it.unit === un && it.per ? it.per : '');
         return '<div class="qrow rowform">' + field(esc(it.name) + ': counted in', 'un_' + it.id, '<select id="un_' + it.id + '" class="cyp-input" data-a-change="unitSel" data-id="' + it.id + '">' + [it.use].concat(EAT_PACKS.filter(function (u) { return u !== it.use && (u !== 'pieces' || it.use === 'kg'); })).map(function (u) { return '<option value="' + u + '"' + (u === un ? ' selected' : '') + '>' + esc(unitOne(u)) + '</option>'; }).join('') + '</select>') +
           (pack ? field('1 ' + esc(unitOne(un)) + ' = (' + esc(it.use) + ')', 'pe_' + it.id, '<input id="pe_' + it.id + '" class="cyp-input num" type="text" inputmode="decimal" value="' + esc(String(per)) + '" data-f="pe_' + it.id + '">') : '') +
-          field('1 portion = (' + esc(it.use) + ')', 'po_' + it.id, '<input id="po_' + it.id + '" class="cyp-input num" type="text" inputmode="decimal" placeholder="' + (it.id === 'chk' ? '0.1' : 'from the plan') + '" value="' + esc(String(S.f['po_' + it.id] != null ? S.f['po_' + it.id] : (it.portion > 0 ? it.portion : ''))) + '" data-f="po_' + it.id + '">') + '</div>';
+          field('1 portion = (' + esc(it.use) + ')', 'po_' + it.id, '<input id="po_' + it.id + '" class="cyp-input num" type="text" inputmode="decimal" placeholder="' + (it.id === 'chk' ? '0.1' : 'from the menu of the week') + '" value="' + esc(String(S.f['po_' + it.id] != null ? S.f['po_' + it.id] : (it.portion > 0 ? it.portion : ''))) + '" data-f="po_' + it.id + '">') + '</div>';
       }).join('') + btn('Save the units', 'data-a="saveUnits"', 'primary block'));
     },
     places: function () { return placesCard(db); },
@@ -1648,24 +1688,32 @@ function dayDots(a) {
   return '<span class="dgrid" role="img" aria-label="' + esc(a.days.map(function (x) { return WD[eatWeekday(x.date)] + ' ' + (DAYST[x.st][0] || 'to come'); }).join(', ')) + '">' +
     a.days.map(function (x) { return '<i class="dg dg--' + x.st + '" title="' + esc(dayName(x.date) + ': ' + DAYST[x.st][1]) + '">' + WD[eatWeekday(x.date)].slice(0, 1) + '</i>'; }).join('') + '</span>';
 }
-function verdictTag(a) { return a.verdict === 'danger' ? tag('danger', 'Food missing') : (a.verdict === 'warn' ? tag('warn', 'To check') : tag('ok', 'Good')); }
+/* beta 1.12 (Mauro, 26/11: "there is always the warning, there's too much alarm"): red and yellow only for what the numbers say (food short in the
+   fridge, portions not accounted, above the margin); what is not written yet is grey */
+var VERDICT = { danger: ['danger', 'Food missing'], warn: ['warn', 'To check'], ok: ['ok', 'Good'], part: ['', 'Not complete'], none: ['', 'Nothing written'] };
+function verdictTag(a) { var v = VERDICT[a.verdict] || VERDICT.none; return tag(v[0], v[1]); }
+function shortTag(a) { return tag(a.sure ? 'danger' : 'warn', plural(a.missing.length, 'food', 'foods') + ' short'); }
 function useWords(it, v) { return v == null ? '–' : (it.use === 'kg' ? Math.round(v * 1000) + ' g' : fmt(Math.round(v * 100) / 100) + ' ' + esc(it.use)); }
-/* what to check, most serious first: food missing in the fridge, days not written, portions not accounted for, cooked off the menu, the fridge or the menu not done */
+/* what to check: only what the numbers say, most serious first. Food short in the fridge (missing when every day has its daily count), then the portions
+   cooked and not accounted for. Differences inside the margin are not listed */
 function accChecks(db, cs, accs) {
   var out = [];
   cs.forEach(function (c, i) {
     var a = accs[i], nm = esc(shown(c.name));
-    a.missing.forEach(function (m) { var it = eatItem(db, m.id); out.push([0, c, nm + ': ' + esc(qtyUnit(m.n, m.unit)) + (m.unit.toLowerCase().indexOf(it.name.toLowerCase().slice(0, 4)) === 0 ? '' : ' of ' + esc(it.name.toLowerCase())) + ' missing in the fridge count of ' + dayName(a.fridge) + (m.portions ? ', about ' + plural(m.portions, 'portion', 'portions') : '') + (m.about ? ' (counted "about")' : '') + '.']); });
-    var bad = a.days.filter(function (x) { return (x.st === 'none' || x.st === 'part') && x.date < todayStr(); });
-    if (bad.length) out.push([1, c, nm + ': ' + plural(bad.length, 'day', 'days') + ' not complete (' + bad.map(function (x) { return WD[eatWeekday(x.date)] + ' ' + (x.st === 'none' ? 'nothing written' : 'part written'); }).join(', ') + '). Food taken out on those days is not explained.']);
-    if (a.unacc > 0) out.push([1, c, nm + ': ' + plural(a.unacc, 'portion', 'portions') + ' cooked and not accounted for (not eaten, not left) on ' + plural(a.unaccDays, 'day', 'days') + '.']);
-    if (a.unacc < 0) out.push([2, c, nm + ': ' + plural(-a.unacc, 'portion', 'portions') + ' more eaten and left than cooked: the portions cooked or counted are not right.']);
-    a.cookedOff.forEach(function (x) { out.push([2, c, nm + ', ' + dayName(x.date) + ': ' + x.cooked + ' portions cooked, menu of the week ' + x.plan + (x.why ? '. Why: "' + esc(x.why) + '"' : '') + '.']); });
-    if (!a.plan) out.push([2, c, nm + ': no menu of the week, so nothing to compare the food with.']);
-    if (!a.fridge) out.push([a.ended ? 1 : 3, c, nm + ': fridge ' + (a.ended ? 'not counted this week: the food missing cannot be checked.' : 'not counted yet this week.')]);
-    if (a.staffMiss) out.push([3, c, nm + ': kitchen staff who ate not written on ' + plural(a.staffMiss, 'day', 'days') + '.']);
+    a.missing.forEach(function (m) { var it = eatItem(db, m.id); out.push([a.sure ? 0 : 1, c, nm + ': ' + esc(qtyUnit(m.n, m.unit)) + (m.unit.toLowerCase().indexOf(it.name.toLowerCase().slice(0, 4)) === 0 ? '' : ' of ' + esc(it.name.toLowerCase())) + (a.sure ? ' missing' : ' short') + ' in the fridge count of ' + dayName(a.fridge) + (m.portions ? ', about ' + plural(m.portions, 'portion', 'portions') : '') + (m.about ? ' (counted "about")' : '') + '.' + (a.sure ? '' : ' Daily food counted on ' + a.storeDaysFood + ' of ' + plural(a.storeDays, 'day', 'days') + ': food cooked on the other days is part of it.')]); });
+    if (a.unaccBig && a.unacc > 0) out.push([1, c, nm + ': ' + plural(a.unacc, 'portion', 'portions') + ' cooked and not accounted for (not eaten, not left) on ' + plural(a.unaccDays, 'day', 'days') + '.']);
+    if (a.unaccBig && a.unacc < 0) out.push([1, c, nm + ': ' + plural(-a.unacc, 'portion', 'portions') + ' more eaten and left than cooked: the portions cooked or counted are not right.']);
   });
   return out.sort(function (x, y) { return x[0] - y[0]; });
+}
+/* what is not written yet, one line for each canteen, in grey: it is not a finding */
+function accGaps(a) {
+  var out = [], bad = a.days.filter(function (x) { return (x.st === 'none' || x.st === 'part') && x.date < todayStr(); });
+  if (bad.length) out.push(plural(bad.length, 'day', 'days') + ' not complete (' + bad.map(function (x) { return WD[eatWeekday(x.date)]; }).join(', ') + ')');
+  if (!a.plan) out.push('menu of the week');
+  if (!a.fridge) out.push(a.ended ? 'fridge count' : 'fridge count (not yet this week)');
+  if (a.staffMiss) out.push('kitchen staff who ate on ' + plural(a.staffMiss, 'day', 'days'));
+  return out;
 }
 SCREENS.overview = function () {
   var db = view(), cs = canteens(db), wide = WIDE.matches, t = todayStr(), mon = S.week;
@@ -1679,28 +1727,30 @@ SCREENS.overview = function () {
   out += '<div class="cyp-tiles ovtiles">' +
     stat('Portions eaten', tot.eaten, tot.plan ? 'menu of the week: ' + nf(tot.plan) + ' on the same days' : 'counted this week') +
     stat('Days complete', tot.done, 'of ' + plural(tot.past, 'day', 'days') + ' so far, all canteens') +
-    stat('Food missing', tot.miss, tot.miss ? 'foods short in the fridge' + (tot.missP ? ', about ' + nf(tot.missP) + ' portions' : '') : (tot.fridges ? 'in ' + plural(tot.fridges, 'fridge count', 'fridge counts') + ' of ' + cs.length + ' canteens' : 'no fridge counted yet this week')) +
+    stat('Short in the fridge', tot.miss, tot.miss ? plural(tot.miss, 'food', 'foods').replace(/^\d+ /, '') + ' above the margin' + (tot.missP ? ', about ' + nf(tot.missP) + ' portions' : '') : (tot.fridges ? 'in ' + plural(tot.fridges, 'fridge count', 'fridge counts') + ' of ' + cs.length + ' canteens' : 'no fridge counted yet this week')) +
     stat('Delivery notes', notes.length, gaps.length ? 'numbers not saved: ' + esc(gapsText(gaps)) : 'this week') + '</div>';
   /* the canteens: a verdict, the days, the portions, the fridge */
   var rows = [], go = [], cards = '';
   cs.forEach(function (c, i) {
     var a = accs[i], nm = '<span class="' + placeClass(c.id) + ' ovname"><i class="cyp-swatch"></i>' + esc(shown(c.name)) + '</span>';
-    var por = a.eatenDays ? nf(a.eaten) + (a.planP ? ' of ' + nf(a.planP) : '') : '–', una = a.cookedDays ? (a.unacc ? tag(a.unacc > 0 ? 'warn' : '', sg(a.unacc)) : '0') : '–';
-    var fr = a.fridge ? (a.missing.length ? tag('danger', plural(a.missing.length, 'food', 'foods') + ' short') : tag('ok', WD[eatWeekday(a.fridge)])) : (a.ended ? tag('warn', 'Not counted') : 'Not yet');
-    rows.push([nm, verdictTag(a), dayDots(a), a.done + ' of ' + a.past, por, una, a.plan ? 'Yes' : tag('warn', 'No'), fr]); go.push(openAt(c));
+    var por = a.eatenDays ? nf(a.eaten) + (a.planP ? ' of ' + nf(a.planP) : '') : '–', una = a.cookedDays ? (a.unacc ? (a.unaccBig ? tag('warn', sg(a.unacc)) : sg(a.unacc)) : '0') : '–';
+    var fr = a.fridge ? (a.missing.length ? shortTag(a) : tag('ok', WD[eatWeekday(a.fridge)])) : (a.ended ? 'Not counted' : 'Not yet');
+    rows.push([nm, verdictTag(a), dayDots(a), a.done + ' of ' + a.past, por, una, a.plan ? 'Yes' : 'No', fr]); go.push(openAt(c));
     cards += '<a href="#" class="cyp-card cyp-card--stack ovc ' + placeClass(c.id) + '" ' + openAt(c) + '><span class="ovc__head">' + nm + verdictTag(a) + goIc() + '</span>' + dayDots(a) +
       '<dl class="cyp-kv"><div><dt>Days complete</dt><dd>' + a.done + ' of ' + a.past + '</dd></div><div><dt>Portions eaten</dt><dd>' + por + '</dd></div><div><dt>Not accounted</dt><dd>' + una + '</dd></div><div><dt>Fridge</dt><dd>' + fr + '</dd></div></dl></a>';
   });
   out += h2('Canteens this week') + (wide ? card(table([['Canteen'], ['Verdict'], ['Days (Mon to Sun)'], ['Complete', 1], ['Portions eaten', 1], ['Not accounted', 1], ['Menu of the week'], ['Fridge']], rows, null, { go: go })) : cards) +
-    small('<i class="dg dg--done"></i> complete · <i class="dg dg--part"></i> part written · <i class="dg dg--none"></i> nothing written · <i class="dg dg--absent"></i> nobody there or not counted. Portions eaten: counted + dinner and other places of the menu of the week + kitchen staff, against the menu of the week on the same days. Not accounted: cooked − eaten − left.');
-  /* what to check */
+    small('<i class="dg dg--done"></i> complete · <i class="dg dg--part"></i> part written · <i class="dg dg--none"></i> nothing written · <i class="dg dg--absent"></i> nobody there or not counted. Portions eaten: counted + dinner and other places of the menu of the week + kitchen staff, against the menu of the week on the same days. Not accounted: cooked − eaten − left. In colour only above the margin: food short in the fridge over 10% of what passed through the store (20% when counted "about"), portions not accounted over 5% of the portions cooked.');
+  /* what to check: the findings; then, in grey, what is not written yet */
   var ck = accChecks(db, cs, accs);
   var byC = cs.map(function (c) { return ck.filter(function (x) { return x[1].id === c.id; }); });
   out += h2('To check') + (ck.length ? list(cs.map(function (c, i) {
     var xs = byC[i]; if (!xs.length) return '';
-    var top = xs[0][0], tg = top === 0 ? tag('danger', 'Food missing') : (top === 1 ? tag('warn', 'Check') : tag('', 'Ask'));
+    var tg = xs[0][0] === 0 ? tag('danger', 'Food missing') : tag('warn', 'Check');
     return row('', '<span class="' + placeClass(c.id) + ' ovname"><i class="cyp-swatch"></i>' + esc(shown(c.name)) + '</span>', '<ul class="ovck">' + xs.map(function (x) { return '<li class="ovck--' + x[0] + '">' + x[2].replace(esc(shown(c.name)) + ': ', '').replace(esc(shown(c.name)) + ', ', '') + '</li>'; }).join('') + '</ul>', '', tg);
-  }).join('')) : banner('ok', 'Nothing to check this week.'));
+  }).join('')) : '<p class="muted" data-nock>Nothing to check in what is written so far.</p>');
+  var gapRows = cs.map(function (c, i) { var g = accGaps(accs[i]); return g.length ? row('', '<span class="' + placeClass(c.id) + ' ovname"><i class="cyp-swatch"></i>' + esc(shown(c.name)) + '</span>', esc(g.join(' · '))) : ''; }).join('');
+  if (gapRows) out += h2('Not written yet') + '<div data-gaps>' + list(gapRows) + '</div>' + small('Not a finding: without these the canteen cannot be judged. Food taken out on a day not written is not explained.');
   /* the food of the week, canteen by canteen: what came in, what the menu asked, what was taken out, a portion, the fridge */
   var frows = [], fgo = [], fphone = '';
   cs.forEach(function (c, i) {
@@ -1708,13 +1758,13 @@ SCREENS.overview = function () {
     db.items.forEach(function (it) {
       var f = a.food[it.id]; if (!f || (!f.inn && !f.plan && !f.out && f.counted == null)) return;
       var fr = f.counted === undefined ? (f.expected != null ? 'expected ' + fmt(f.expected) : '–') : (f.counted === null ? 'not counted' : (f.expected == null ? 'counted ' + fmt(f.counted) : fmt(f.expected) + ' → ' + fmt(f.counted) + (f.about ? ' (about)' : '')));
-      var df = f.diff == null ? '' : (f.diff < 0 ? tag('danger', fmt(f.diff)) : (f.diff > 0 ? tag('warn', '+' + fmt(f.diff)) : tag('ok', '0')));
+      var df = f.diff == null ? '' : (f.diff < 0 ? (f.big ? tag(a.sure ? 'danger' : 'warn', fmt(f.diff)) : fmt(f.diff)) : (f.diff > 0 ? '+' + fmt(f.diff) : tag('ok', '0')));
       frows.push([lines ? '' : '<span class="' + placeClass(c.id) + ' ovname"><i class="cyp-swatch"></i>' + esc(shown(c.name)) + '</span>', esc(it.name) + ' (' + esc(it.unit) + ')', f.inn ? fmt(f.inn) : '–', f.planDays ? fmt(f.plan) : '–', f.outDays ? fmt(f.out) : '–', useWords(it, f.per), fr, df]); fgo.push(openAt(c));
       lines += row('', esc(it.name) + ' (' + esc(it.unit) + ')', 'Delivered ' + (f.inn ? fmt(f.inn) : '0') + ' · menu ' + (f.planDays ? fmt(f.plan) : '–') + ' · taken out ' + (f.outDays ? fmt(f.out) : '–') + ' · a portion ' + useWords(it, f.per) + ' · fridge ' + fr, '', df);
     });
     if (lines) fphone += h3('<span class="' + placeClass(c.id) + ' ovname"><i class="cyp-swatch"></i>' + esc(shown(c.name)) + '</span>') + list(lines);
   });
-  out += h2('Food this week') + small('Delivered: the delivery notes. Menu: the menu of the week, on the days written so far. Taken out: the daily counts. Fridge: start + delivered − cooked = expected, then the count. A minus is food that is not there.') +
+  out += h2('Food this week') + small('Delivered: the delivery notes. Menu: the menu of the week, on the days written so far. Taken out: the daily counts. Fridge: start + delivered − cooked = expected, then the count. A minus is food that is not there; it is in colour above the margin.') +
     (frows.length ? (wide ? card(table([['Canteen'], ['Food'], ['Delivered', 1], ['Menu', 1], ['Taken out', 1], ['A portion', 1], ['Fridge'], ['Difference', 1]], frows, null, { go: fgo, dense: true })) : card(fphone)) : '<p class="muted">No food delivered or counted this week.</p>');
   /* a portion, canteen against canteen: the same food should give about the same portion */
   var prow3 = [];
@@ -1730,14 +1780,14 @@ SCREENS.overview = function () {
     trows.push(['<span class="' + placeClass(c.id) + ' ovname"><i class="cyp-swatch"></i>' + esc(shown(c.name)) + '</span>'].concat(wk.map(function (w) {
       if (w > t) return '–'; var a = eatAccount(db, c.id, w, t);
       if (!a.done && !a.part && !a.eaten && !a.fridge) return '<span class="muted">Nothing written' + (a.notes ? ' · ' + plural(a.notes, 'note', 'notes') : '') + '</span>';
-      return a.done + '/' + a.past + ' days · ' + nf(a.eaten) + ' portions' + (a.missing.length ? ' · ' + tag('danger', plural(a.missing.length, 'food', 'foods') + ' short') : (a.fridge ? ' · fridge ok' : ' · no fridge count'));
+      return a.done + '/' + a.past + ' days · ' + nf(a.eaten) + ' portions' + (a.missing.length ? ' · ' + shortTag(a) : (a.fridge ? ' · fridge ok' : ' · no fridge count'));
     })));
   });
   out += h2('Last four weeks') + card(table([['Canteen']].concat(wk.map(function (w) { return ['Week of ' + dmy(w).slice(0, 5)]; })), trows, null, { dense: true }));
   /* one canteen open: its days, the menu of the week against what happened, the fridge */
   if (sel) {
     var si = cs.map(function (c) { return c.id; }).indexOf(sel), a = accs[si], c = cs[si];
-    var drows = a.days.map(function (x) { return [dayName(x.date), DAYST[x.st][0] ? (x.st === 'done' ? tag('ok', 'Done') : (x.st === 'none' || x.st === 'part' ? tag('warn', DAYST[x.st][0]) : DAYST[x.st][0])) : '', x.eaten == null ? '–' : nf(x.eaten), x.plan == null ? '–' : nf(x.plan), x.cooked == null ? '–' : nf(x.cooked) + (x.why ? ' (' + esc(x.why) + ')' : ''), x.left == null ? '–' : nf(x.left), x.unacc == null ? '–' : (x.unacc ? tag('warn', sg(x.unacc)) : '0')]; });
+    var drows = a.days.map(function (x) { return [dayName(x.date), DAYST[x.st][0] ? (x.st === 'done' ? tag('ok', 'Done') : (x.st === 'none' || x.st === 'part' ? tag('', DAYST[x.st][0]) : DAYST[x.st][0])) : '', x.eaten == null ? '–' : nf(x.eaten), x.plan == null ? '–' : nf(x.plan), x.cooked == null ? '–' : nf(x.cooked) + (x.why ? ' (' + esc(x.why) + ')' : ''), x.left == null ? '–' : nf(x.left), x.unacc == null ? '–' : (x.unacc ? (x.unaccBig ? tag('warn', sg(x.unacc)) : sg(x.unacc)) : '0')]; });
     out += '<div id="ovsel">' + h2('<span class="' + placeClass(c.id) + ' ovname"><i class="cyp-swatch"></i>' + esc(shown(c.name)) + '</span> day by day') +
       card(table([['Day'], ['Written'], ['Eaten', 1], ['Menu of the week', 1], ['Cooked', 1], ['Left', 1], ['Not accounted', 1]], drows, null, { dense: true })) +
       planCard(db, cs, sel, wide) + checkCard(db, sel, wide) + btn('Close ' + esc(shown(c.name)), 'data-a="ovAll"', '', 'x') + '</div>';
@@ -1763,6 +1813,7 @@ function enter(scr) {
   if (scr === 'menu') {
     var dm = eatDayMenu(db, c, d); S.f = { meals: JSON.parse(JSON.stringify(dm.meals)), cook: dm.cook || '' };
     if (S.f.meals.Breakfast) S.f.meals.Breakfast.isOther = !S.f.meals.Breakfast.mm && !!S.f.meals.Breakfast.other;
+    for (var om in S.f.meals) if (om !== 'Breakfast') S.f.meals[om].isOther = !!S.f.meals[om].other;
   }
   if (scr === 'before' || scr === 'after') {
     var b = eatGet(db, 'dbefore', c, d, ''), rows = eatDayRows(db, c, d), id;
@@ -1773,10 +1824,11 @@ function enter(scr) {
     S.f = { rows: rows, q: e ? JSON.parse(JSON.stringify(e.data.q)) : {}, nc: e ? JSON.parse(JSON.stringify(e.data.nc || {})) : {}, vegName: vegs.length ? 'Vegetables (' + vegs.join(', ').toLowerCase() + ')' : '' };
     /* the unit of each row: as saved; at the end of the day = the unit of the morning; new rows start in the store unit (bags, trays) */
     var su = e && e.data.u ? e.data.u : null, bu = b && b.data.u ? b.data.u : {};
-    S.f.u = {}; rows.forEach(function (id) { var it = eatItem(db, id); if (!it || it.unit === it.use) return; S.f.u[id] = scr === 'after' ? (bu[id] || 'use') : (e ? ((su && su[id]) || 'use') : 'unit'); });
+    if (scr === 'before') for (var akk in EAT_ALT) S.f['ak_' + akk] = e && e.data.ak && e.data.ak[akk] != null ? e.data.ak[akk] : lastBucketKg(db, c, akk);
+    S.f.u = {}; rows.forEach(function (id) { var it = eatItem(db, id); if (!it || (it.unit === it.use && !EAT_ALT[id])) return; S.f.u[id] = scr === 'after' ? (bu[id] || 'use') : (e ? ((su && su[id]) || 'use') : 'unit'); });
     /* leftovers in portions: the size of one portion of each food; saved ones show again in portions */
     if (scr === 'before') { delete S.f.q.pc; S.f.q.pc = e && e.data.pc != null ? e.data.pc : null; S.f.pcw = e && e.data.pcw ? e.data.pcw : ''; Object.keys(S.f.q).forEach(function (k) { if (k.indexOf('pp_') === 0) delete S.f.q[k]; }); if (e && e.data.pp) for (var k10 in e.data.pp) S.f.q['pp_' + k10] = e.data.pp[k10]; }
-    if (scr === 'after') { S.f.q = { pr: e && e.data.pr != null ? e.data.pr : null }; S.f.nc = {}; }
+    if (scr === 'after') { S.f.q = { pr: e && e.data.pr != null ? e.data.pr : null }; S.f.nc = {}; S.f.byFood = !!(e && e.data.prf); if (e && e.data.prf) for (var fk in e.data.prf) S.f.q['pf_' + fk] = e.data.prf[fk]; }
     if (false) {
       S.f.ps = {}; rows.forEach(function (id) {
         var size = e && e.data.ps && e.data.ps[id] > 0 ? e.data.ps[id] : eatPortionSize(db, c, d, id); if (!(size > 0)) return;
@@ -1930,7 +1982,7 @@ A.plAgain = function () { S.f = {}; planInit(); render(); };
 A.plSave = function () {
   var c = plCentre(), data = plData();
   if (!c) { S.notice = 'Choose the kitchen.'; return render(); }
-  if (!data) { S.notice = 'Write at least one number of the plan.'; return render(); }
+  if (!data) { S.notice = 'Write at least one number of the menu of the week.'; return render(); }
   queue({ kind: 'entry', e: { type: 'plan', centre: c, date: S.f.plw, meal: '', data: data, by: S.sess.nid || '', byName: myName() || (S.sess.mode === 'delivery' ? 'Deliveries' : 'Overview'), at: nowIso() } });
   S.pl = { step: 'saved', c: c, w: S.f.plw }; S.notice = ''; window.scrollTo(0, 0); render();
 };
@@ -1946,23 +1998,23 @@ A.planPhoto = function (el) {
 function plRead(data) {
   var img = S.pl.img;
   function fail(msg) { S.pl = { step: 'error', msg: msg, img: img }; render(); }
-  if (!navigator.onLine) return fail('The picture is read on the internet. Try again when there is internet, or write the plan here.');
+  if (!navigator.onLine) return fail('The picture is read on the internet. Try again when there is internet, or write the menu of the week here.');
   clearInterval(S.dvTick); S.dvTick = setInterval(function () { var el = document.getElementById('rsec'); if (el && S.pl && S.pl.t0) el.textContent = Math.round((Date.now() - S.pl.t0) / 1000); else clearInterval(S.dvTick); }, 1000);
   post({ action: 'read', kind: 'plan', mode: S.sess.mode, cred: S.sess.cred, image: data }, 90000).then(function (res) {
     if (!res || !res.ok) {
       var e = res && res.error; S.f.plPhoto = res && res.photo || S.f.plPhoto;
       if (e === 'pin') return signOut('The PIN has changed. Sign in again.');
-      return fail(e === 'no_reader' || e === 'reader_key' ? 'The photo reader is not set up. Write the plan here, or tell the office.' : (e === 'reader_busy' ? 'The photo reader is busy. Wait one minute and try again, or write the plan here.' : 'The picture could not be read. Take it again, flat, with the whole paper, or write the plan here.') + (res && res.detail ? ' (' + String(res.detail).slice(0, 80) + ')' : ''));
+      return fail(e === 'no_reader' || e === 'reader_key' ? 'The photo reader is not set up. Write the menu of the week here, or tell the office.' : (e === 'reader_busy' ? 'The photo reader is busy. Wait one minute and try again, or write the menu of the week here.' : 'The picture could not be read. Take it again, flat, with the whole paper, or write the menu of the week here.') + (res && res.detail ? ' (' + String(res.detail).slice(0, 80) + ')' : ''));
     }
     var r = res.plan || {};
-    if (!r.clear) return fail('No plan could be read in the picture. Take it again, flat, with the whole paper, or write the plan here.');
+    if (!r.clear) return fail('No menu of the week could be read in the picture. Take it again, flat, with the whole paper, or write the menu of the week here.');
     var mon = eatMonday(todayStr());
     if (S.sess.mode !== 'entry' && r.centre) S.f.plc = r.centre;
     if (r.week && r.week >= eatAddDays(mon, -7) && r.week <= eatAddDays(mon, 7)) S.f.plw = r.week;
     var c = plCentre(), old = c ? eatGet(view(), 'plan', c, S.f.plw, '') : null;
     plFill(r); S.f.plPhoto = res.photo || ''; S.f.plOld = !!old;
     S.pl = { step: 'form', read: true, img: img }; render();
-  }).catch(function (err) { fail(String(err && err.message) === 'timeout' ? 'The photo reader took too long. Try again, or write the plan here.' : 'The picture could not be sent. Try again, or write the plan here.'); });
+  }).catch(function (err) { fail(String(err && err.message) === 'timeout' ? 'The photo reader took too long. Try again, or write the menu of the week here.' : 'The picture could not be sent. Try again, or write the menu of the week here.'); });
 }
 A.hideNotice = function () { S.notice = ''; render(); };
 function openWithLink(text) {
@@ -2080,6 +2132,7 @@ A.bfm = function (el) { var x = S.f.meals.Breakfast, v = el.getAttribute('data-v
 A.cook = function (el) { var n = el.getAttribute('data-n'); S.f.cook = S.f.cook === n ? '' : n; S.keepScroll = true; render(); };
 A.mmm = function (el) { var x = S.f.meals[el.getAttribute('data-m')]; x.mm = !x.mm; S.keepScroll = true; render(); };
 A.rel = function (el) { var x = S.f.meals[el.getAttribute('data-m')], id = el.getAttribute('data-id'), i = x.relish.indexOf(id); if (i >= 0) x.relish.splice(i, 1); else x.relish.push(id); S.keepScroll = true; render(); };
+A.relo = function (el) { var x = S.f.meals[el.getAttribute('data-m')]; x.isOther = !x.isOther; S.keepScroll = true; render(); var oi = x.isOther && document.getElementById('oth_' + el.getAttribute('data-m')); if (oi && !oi.value) oi.focus(); };
 A.addRow = function (el) { var id = el.getAttribute('data-id'), it = eatItem(view(), id); if (S.f.rows.indexOf(id) < 0) S.f.rows.push(id); if (it && it.unit !== it.use) S.f.u[id] = 'unit'; S.keepScroll = true; render(); };
 A.mm = function () { S.f.mm = !S.f.mm; S.keepScroll = true; render(); };
 A.relish = function (el) { var id = el.getAttribute('data-id'), i = S.f.relish.indexOf(id); if (i >= 0) S.f.relish.splice(i, 1); else S.f.relish.push(id); S.keepScroll = true; render(); };
@@ -2092,10 +2145,14 @@ A.saveMenu = function () {
       var other = x.isOther ? (x.other || '').trim() : '';
       if (x.isOther && !other) { S.notice = 'Breakfast: write what it is, or choose porridge.'; return render(); }
       ms[m] = { mm: !!x.mm, other: other };
-    } else ms[m] = { mm: !!x.mm, relish: x.relish.slice(), veg: (x.veg || '').trim() };
+    } else {
+      var oth = x.isOther ? (x.other || '').trim() : '';
+      if (x.isOther && !oth) { S.notice = (sameDinner(f.meals) && m === 'Lunch' ? 'Lunch and dinner' : m) + ': write what Other is, or untick it.'; return render(); }
+      ms[m] = { mm: !!x.mm, relish: x.relish.slice(), veg: (x.veg || '').trim() }; if (oth) ms[m].other = oth;
+    }
   }
   /* dinner is not asked: it is the same as lunch */
-  if (ms.Lunch && ms.Dinner) ms.Dinner = { mm: ms.Lunch.mm, relish: ms.Lunch.relish.slice(), veg: ms.Lunch.veg };
+  if (ms.Lunch && ms.Dinner) { ms.Dinner = { mm: ms.Lunch.mm, relish: ms.Lunch.relish.slice(), veg: ms.Lunch.veg }; if (ms.Lunch.other) ms.Dinner.other = ms.Lunch.other; }
   saveEntry('dmenu', '', { meals: ms, cook: (f.cook || '').trim() }); setStepSkip('menu', false); go('before');
 };
 A.unit = function (el) { var k = el.getAttribute('data-k'); S.f.u[k] = el.getAttribute('data-v'); S.keepScroll = true; render(); };
@@ -2122,7 +2179,7 @@ A.step = function (el) {
 function liveUpdate() {
   var pcm = document.getElementById('pcm'); if (pcm && S.scr === 'before') { var hadW = document.activeElement && document.activeElement.id === 'pcw'; pcm.innerHTML = cookedMatch(view()); if (hadW) { var w9 = document.getElementById('pcw'); if (w9) w9.focus(); } }
   if (S.scr === 'endweek' || S.scr === 'startweek') view().items.forEach(function (it) { var cv = document.getElementById('cv_' + it.id); if (cv) cv.innerHTML = countConvLine(it); });
-  var bal = document.getElementById('bal'); if (bal && S.scr === 'after') bal.innerHTML = balanceHtml();
+  var bal = document.getElementById('bal'); if (bal && S.scr === 'after') { bal.innerHTML = balanceHtml(); var prn = eatNum(S.f.q.pr), pfs = document.querySelectorAll('[data-q^="pf_"]'); for (var pi = 0; pi < pfs.length; pi++) pfs[pi].placeholder = prn == null ? 0 : Math.round(prn); }
   var dn = document.getElementById('din'); if (dn && S.scr === 'after') { var dv = dinnerPlanned(view(), S.sess.centre, S.date); if (dv != null) dn.innerHTML = dinnerSplit(dv, eatNum(S.f.q.pr)); }
   if (S.scr === 'endweek' || S.scr === 'startweek') { var st = eatStock(view(), S.sess.centre, S.f.date, S.scr === 'startweek'); view().items.forEach(function (it) { var box = document.getElementById('d_' + it.id); if (box && st[it.id]) box.innerHTML = endPill(it, st[it.id]); }); }
 }
@@ -2142,12 +2199,18 @@ A.saveBefore = function () {
   if (pc != null) { d.pc = Math.round(pc); if (pp && d.pc !== pp.tot) d.pcw = (S.f.pcw || '').trim(); }
   if (S.f.rows.indexOf('chk') >= 0 && !('pcs' in d.q)) d.q.pcs = null;
   d.u = S.f.u || {};
+  var ak = {}, anyAk = false, noAk = [];
+  S.f.rows.forEach(function (id) { if (d.u[id] !== 'alt' || !EAT_ALT[id] || S.f.nc[id]) return; var k = eatNum(S.f['ak_' + id]); if (k > 0) { ak[id] = k; anyAk = true; } else if (d.q[id]) noAk.push(eatItem(view(), id).name); });
+  if (noAk.length) { S.notice = 'Write about how many kg one bucket holds: ' + noAk.join(', ') + '.'; return render(); }
+  if (anyAk) d.ak = ak;
   var toPeople = peopleOpen(); saveEntry('dbefore', '', d); setStepSkip('before', false); S.notice = ''; go(toPeople ? 'people' : 'today');
 };
+A.byFood = function () { S.f.byFood = !S.f.byFood; S.keepScroll = true; render(); };
 A.saveAfter = function () {
-  var pr = eatNum(S.f.q.pr);
+  var pr = afterPr(), prf = afterPrf();
   if (pr == null || pr < 0) { S.notice = 'Write the portions remained (0 if nothing remained).'; render(); return; }
-  saveEntry('dafter', '', { pr: Math.round(pr) }); setStepSkip('after', false); go('today');
+  var da = { pr: Math.round(pr) }; if (prf) da.prf = prf;
+  saveEntry('dafter', '', da); setStepSkip('after', false); go('today');
 };
 function queueNote(centre, date, data) { queue({ kind: 'entry', e: { type: 'note', centre: centre, date: date, meal: '', data: data, by: S.sess.nid || '', byName: myName() || 'Overview', at: nowIso() } }); }
 A.noteNew = function () { S.noteNo = ''; go('note'); };
@@ -2302,7 +2365,7 @@ function backTarget() {
 A.histBack = function () {
   var to = backTarget(); if (!to) return;
   if (to === 'signin') return signOut('');
-  if (to === 'day') { askDay(true); S.hist = []; return render(); }
+  if (to === 'day') { askDay(true); S.hist = []; if (!DAYSCR[S.scr]) return go('today', true); return render(); }
   if (to === 'centre') { S.hist = []; return go('centre', true); }
   while (S.hist && S.hist.length && S.hist[S.hist.length - 1] !== to) S.hist.pop();
   if (S.hist) S.hist.pop();
@@ -2430,28 +2493,43 @@ function makeXlsx(sheets) {
 function saveFile(name, blob) { try { var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click(); a.remove(); } catch (e) { S.notice = 'This screen cannot save files.'; render(); } }
 function exportXlsx() {
   var db = view(), E = db.entries.filter(function (e) { return !e.del; }).sort(function (a, b) { return (a.date + a.centre + EAT_MEALS.indexOf(a.meal)) < (b.date + b.centre + EAT_MEALS.indexOf(b.meal)) ? -1 : 1; });
-  var people = { name: 'People', head: ['Date', 'Day', 'Centre', 'Meal', 'Portions', 'Of which', 'Finished', 'Counted by', 'Saved at'], rows: [] };
-  var day = { name: 'Food a day', head: ['Date', 'Day', 'Centre', 'Menu', 'Cook', 'Item', 'Taken out', 'Left at the end of the day', 'Unit written', 'Used', 'Unit', 'Portions of the day', 'Amount a portion', 'Food not counted'], rows: [] };
+  var people = { name: 'People', head: ['Date', 'Day', 'Centre', 'Meal', 'Portions', 'Of which', 'Protein', 'Finished', 'Counted by', 'Saved at'], rows: [] };
+  var day = { name: 'Menu', head: ['Date', 'Day', 'Centre', 'Lunch', 'Dinner', 'Nshima', 'Protein 1', 'Protein 2', 'Head cook', 'Item', 'Taken out', 'Chicken pieces', 'Left at the end of the day', 'Unit written', 'Used', 'Unit', 'Portions counted during the day', 'Amount a portion', 'Chicken pieces a portion', 'Food not counted'], rows: [] };
+  var pday = { name: 'Portions a day', head: ['Date', 'Day', 'Centre', 'Portions counted', 'Dinner (menu of the week)', 'Other places (menu of the week)', 'Kitchen staff', 'Portions eaten', 'Portions cooked', 'Menu of the week', 'Why different', 'Portions remained', 'Left for another day', 'Not accounted (cooked - eaten - left)', 'Portions remained of each food'], rows: [] }, pseen = {};
+  /* the portions counted during the day: the meals that are counted, not the dinner of the plan */
+  function counted(c, d) { var cc = eatCentre(db, c), n = null; (cc ? cc.meals : []).forEach(function (m) { if (eatFixed(db, c, m) != null) return; var p = eatGet(db, 'people', c, d, m); if (p && !p.data.skip) n = (n || 0) + eatPlates(p); }); return n; }
+  /* the menu of a day in columns: Lunch, Dinner, Nshima, Protein 1, Protein 2 (N/A when there is none) */
+  function menuCols(c, dmn) {
+    var cc = eatCentre(db, c), ms = cc ? cc.meals : [], mm = false, pr = [];
+    for (var m in dmn.meals) { var x = dmn.meals[m]; if (x.mm) mm = true; (x.relish || []).forEach(function (id) { var it = eatItem(db, id); if (it && pr.indexOf(it.name) < 0) pr.push(it.name); }); if (x.other && pr.indexOf(x.other) < 0) pr.push(x.other); }
+    return [ms.indexOf('Lunch') >= 0 ? 'Lunch' : 'N/A', ms.indexOf('Dinner') >= 0 ? 'Dinner' : 'N/A', mm ? 'Nshima' : 'N/A', pr[0] || 'N/A', pr.length > 1 ? pr.slice(1).join(', ') : 'N/A'];
+  }
+  function timeOf(iso) { return localTime(iso).slice(11); }
   var food = { name: 'Food a meal (old)', head: ['Date', 'Day', 'Centre', 'Meal', 'Menu', 'Item', 'Before', 'Back', 'Unit written', 'Used', 'Unit', 'Portions', 'Kept for later meal', 'Amount a portion', 'Food not counted'], rows: [] };
   var rec = { name: 'Delivery notes', head: ['Note no.', 'Date', 'Day', 'Centre', 'Item', 'Quantity', 'Unit', 'Should last (days)', 'Until', 'Remark', 'Received by', 'Copied by'], rows: [] };
   var end = { name: 'Stock counts', head: ['Date', 'Day', 'Centre', 'Count', 'Item', 'Expected', 'Counted', 'Difference', 'Unit', 'By'], rows: [] };
   var seen = {}, fxDay = {};
-  E.forEach(function (e) { if (e.type !== 'people' || fxDay[e.centre + e.date]) return; fxDay[e.centre + e.date] = 1; var cc = eatCentre(db, e.centre); (cc ? cc.meals : []).forEach(function (m) { var fx = eatFixed(db, e.centre, m); if (fx != null) people.rows.push([e.date, WD[eatWeekday(e.date)], shown(cc.name), m, fx, '', 'Fixed number, not counted', '', '']); }); });
-  E.forEach(function (e) { if (e.type === 'dafter' && e.data.pr != null) people.rows.push([e.date, WD[eatWeekday(e.date)], centreName(e.centre), 'Portions remained', e.data.pr, '', '', e.byName || '', e.at || '']); });
-  E.forEach(function (e) { if (e.type === 'dbefore' && e.data.pc != null) people.rows.push([e.date, WD[eatWeekday(e.date)], centreName(e.centre), 'Portions cooked', e.data.pc, '', e.data.pcw ? 'Why different from the menu of the week: ' + e.data.pcw : '', e.byName || '', e.at || '']); });
-  E.forEach(function (e) { if (e.type === 'staff') people.rows.push([e.date, WD[eatWeekday(e.date)], centreName(e.centre), 'Kitchen staff', e.data.n, '', '', e.byName || '', e.at || '']); });
+  E.forEach(function (e) { if (e.type !== 'people' || fxDay[e.centre + e.date]) return; fxDay[e.centre + e.date] = 1; var cc = eatCentre(db, e.centre); (cc ? cc.meals : []).forEach(function (m) { var fx = eatFixed(db, e.centre, m); if (fx != null) { var pf = planOrFixed(db, e.centre, e.date, m); people.rows.push([e.date, WD[eatWeekday(e.date)], shown(cc.name), m, pf[0], '', '', pf[1] ? 'From the menu of the week, not counted' : 'Fixed number, not counted', '', '']); } }); });
+  E.forEach(function (e) {
+    if (['people', 'staff', 'dbefore', 'dafter'].indexOf(e.type) < 0 || pseen[e.centre + e.date]) return; pseen[e.centre + e.date] = 1;
+    var u = eatDayUse(db, e.centre, e.date), pp = planPortions(db, e.centre, e.date), na = u.cookedP != null && u.remained != null && u.base != null ? u.cookedP - u.base - u.leftPortions : '';
+    pday.rows.push([e.date, WD[eatWeekday(e.date)], centreName(e.centre), counted(e.centre, e.date) == null ? '' : counted(e.centre, e.date), u.dinner == null ? '' : u.dinner, u.cooked || '', u.staff == null ? '' : u.staff, u.base == null ? '' : u.base,
+      u.cookedP == null ? '' : u.cookedP, pp ? pp.tot : '', u.cookedWhy || '', u.remained == null ? '' : u.remained, u.leftPortions == null ? '' : u.leftPortions, na, u.remF ? db.items.filter(function (it) { return u.remF[it.id] != null; }).map(function (it) { return it.name + ' ' + u.remF[it.id]; }).join(', ') : '']);
+  });
   E.forEach(function (e) {
     var c = centreName(e.centre);
-    if (e.type === 'people' && eatFixed(db, e.centre, e.meal) == null) people.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, e.data.skip ? '' : eatPlates(e), e.data.g ? e.data.n + ' ' + c + Object.keys(e.data.g).map(function (k) { return ', ' + e.data.g[k] + ' ' + k; }).join('') : '', e.data.skip ? 'Portions not counted' : (e.data.done ? 'Yes' : 'Counting'), e.byName, localTime(e.saved)]);
+    if (e.type === 'people' && eatFixed(db, e.centre, e.meal) == null) people.rows.push([e.date, WD[eatWeekday(e.date)], c, e.meal, e.data.skip ? '' : eatPlates(e), e.data.g ? e.data.n + ' ' + c + Object.keys(e.data.g).map(function (k) { return ', ' + e.data.g[k] + ' ' + k; }).join('') : '', e.data.pf ? Object.keys(e.data.pf).map(function (k) { var pit = eatItem(db, k), pdm = k === EAT_OTHER ? eatDayMenu(db, e.centre, e.date).meals : null, pom = pdm ? pdm[e.meal] || pdm.Lunch : null; return (pit ? pit.name : (pom && pom.other ? pom.other : 'Other')) + ' ' + e.data.pf[k]; }).join(', ') : '', e.data.skip ? 'Portions not counted' : (e.data.done ? 'Yes' : 'Counting'), e.byName, timeOf(e.saved)]);
     if ((e.type === 'dbefore' || e.type === 'dskip') && !seen['d' + e.centre + e.date]) {
       seen['d' + e.centre + e.date] = 1;
       var du = eatDayUse(db, e.centre, e.date), db0 = eatGet(db, 'dbefore', e.centre, e.date, ''), da = eatLeft(db, e.centre) ? eatGet(db, 'dafter', e.centre, e.date, '') : null, dmn = eatDayMenu(db, e.centre, e.date), dmt = dayMenuText(db, dmn);
-      if (du.skipped) { day.rows.push([e.date, WD[eatWeekday(e.date)], c, dmt, dmn.cook, '', '', '', '', '', '', du.plates, '', 'Yes']); return; }
+      var mc = menuCols(e.centre, dmn), cnt = counted(e.centre, e.date);
+      if (du.skipped) { day.rows.push([e.date, WD[eatWeekday(e.date)], c].concat(mc).concat([dmn.cook, '', '', '', '', '', '', '', cnt == null ? '' : cnt, '', '', 'Yes'])); return; }
       if (!db0) return;
       for (var did in db0.data.q) {
-        var dit = did === 'pcs' ? { name: 'Chicken pieces', use: 'pieces' } : eatItem(db, did); if (!dit) continue;
-        var dper = did === 'pcs' ? (du.pieces != null && du.closed && du.base ? du.pieces / eatBaseOf(du, 'pcs') : null) : eatPerPlate(du, did), dused = did === 'pcs' ? du.pieces : du.used[did];
-        day.rows.push([e.date, WD[eatWeekday(e.date)], c, dmt, dmn.cook, dit.name, db0.data.q[did] == null ? 'Not counted' : db0.data.q[did], !eatLeft(db, e.centre) ? 'Not counted at this centre' : (da ? (da.data.q[did] == null ? (da.data.nc && da.data.nc[did] ? 'Not counted' : '') : da.data.q[did]) : 'Not yet'), did === 'pcs' ? 'pieces' : (rowUnit(dit, (db0.data.u || {})[did]) === 'unit' ? dit.unit : dit.use), dused == null ? '' : dused, dit.use, du.plates, dper == null ? '' : (dit.use === 'kg' ? Math.round(dper * 1000) + ' g' : Math.round(dper * 100) / 100), '']);
+        if (did === 'pcs') continue; var dit = eatItem(db, did); if (!dit) continue;
+        var dper = eatPerPlate(du, did), dused = du.used[did], chk = did === 'chk', pcs = db0.data.q.pcs, ppc = chk && du.pieces != null && du.closed && du.base ? du.pieces / eatBaseOf(du, 'pcs') : null;
+        var lft = !eatLeft(db, e.centre) ? 'Not counted at this centre' : (!da ? 'Not yet' : (da.data.pr != null ? (du.left[did] != null ? du.left[did] : '') : (da.data.q[did] == null ? (da.data.nc && da.data.nc[did] ? 'Not counted' : '') : da.data.q[did])));
+        day.rows.push([e.date, WD[eatWeekday(e.date)], c].concat(mc).concat([dmn.cook, dit.name, db0.data.q[did] == null ? 'Not counted' : db0.data.q[did], chk ? (pcs == null ? ((db0.data.nc || {}).pcs ? 'Not counted' : '') : pcs) : '', lft, unitName(dit, rowUnit(dit, (db0.data.u || {})[did])) + ((db0.data.ak || {})[did] ? ' (1 = ' + db0.data.ak[did] + ' kg)' : ''), dused == null ? '' : dused, dit.use, cnt == null ? '' : cnt, dper == null ? '' : (dit.use === 'kg' ? Math.round(dper * 1000) + ' g' : Math.round(dper * 100) / 100), ppc == null ? '' : Math.round(ppc * 100) / 100, '']));
       }
     }
     if ((e.type === 'before' || e.type === 'skip') && !seen[e.centre + e.date + e.meal]) {
@@ -2499,7 +2577,7 @@ function exportXlsx() {
         plans.rows.push([e.date, dt, WD[eatWeekday(dt)], c, d.food || '', '', '', it.name, d.q[k], it.unit, tk == null ? (b ? 'Not counted' : '') : tk, e.byName || '']); }
     }
   });
-  saveFile('CYP-EAT_' + todayStr() + '.xlsx', makeXlsx([people, day].concat(food.rows.length ? [food] : []).concat([rec]).concat(plans.rows.length ? [plans] : []).concat([end, chk, stock, com])));
+  saveFile('CYP-EAT_' + todayStr() + '.xlsx', makeXlsx([people, pday, day].concat(food.rows.length ? [food] : []).concat([rec]).concat(plans.rows.length ? [plans] : []).concat([end, chk, stock, com])));
 }
 
 /* ===================== events ===================== */
